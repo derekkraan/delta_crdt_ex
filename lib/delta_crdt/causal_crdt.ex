@@ -7,14 +7,14 @@ defmodule DeltaCrdt.CausalCrdt do
   @type delta :: {k :: integer(), delta :: any()}
   @type delta_interval :: {a :: integer(), b :: integer(), delta :: delta()}
 
-  @callback new() :: {initial_state :: any, new_causal_context :: list(tuple())}
+  # @callback new() :: {initial_state :: any, new_causal_context :: list(tuple())}
 
-  @callback join(
-              {state1 :: any(), causal_context_1 :: CausalContext.t()},
-              {state2 :: any(), causal_context_2 :: CausalContext.t()}
-            ) :: {new_state :: any(), new_causal_context :: CausalContext.t()}
+  # @callback join(
+  #             {state1 :: any(), causal_context_1 :: CausalContext.t()},
+  #             {state2 :: any(), causal_context_2 :: CausalContext.t()}
+  #           ) :: {new_state :: any(), new_causal_context :: CausalContext.t()}
 
-  @callback value(state :: any()) :: any()
+  # @callback value(state :: any()) :: any()
 
   @moduledoc """
   DeltaCrdt implements Algorithm 2 from `Delta State Replicated Data Types – Almeida et al. 2016`
@@ -24,31 +24,27 @@ defmodule DeltaCrdt.CausalCrdt do
   @doc """
   Start a DeltaCrdt.
   """
-  def start_link(crdt_module, opts \\ []) do
-    GenServer.start_link(__MODULE__, crdt_module, opts)
+  def start_link(crdt_state, opts \\ []) do
+    GenServer.start_link(__MODULE__, crdt_state, opts)
   end
 
   defmodule State do
     # crdt_id: nil,
     # crdt_name: nil,
-    defstruct crdt_module: nil,
-              neighbours: [],
+    defstruct neighbours: [],
               crdt_state: [],
               sequence_number: 0,
               deltas: %{},
               ack_map: %{}
   end
 
-  def init(crdt_module) do
+  def init(crdt_state) do
     DeltaCrdt.Periodic.start_link(:ship_interval_or_state, @ship_interval)
     DeltaCrdt.Periodic.start_link(:garbage_collect_deltas, @gc_interval)
 
     {:ok,
      %State{
-       crdt_module: crdt_module,
-       crdt_state: apply(crdt_module, :new, [])
-       # crdt_id: UUID.uuid4(),
-       # neighbours: neighbours,
+       crdt_state: crdt_state
      }}
   end
 
@@ -85,7 +81,7 @@ defmodule DeltaCrdt.CausalCrdt do
         |> Enum.filter(fn {i, _delta} -> remote_acked <= i && i < state.sequence_number end)
         |> Enum.map(fn {_i, delta} -> delta end)
         |> Enum.reduce(fn delta, delta_interval ->
-          state.crdt_module.join(delta_interval, delta)
+          DeltaCrdt.JoinSemilattice.join(delta_interval, delta)
         end)
       end
 
@@ -113,8 +109,9 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_info(
-        {:delta, neighbour, {_d_s, delta_c} = delta_interval, n},
-        %{crdt_state: {_s, c}} = state
+        {:delta, neighbour,
+         %{crdt: %DeltaCrdt.Causal{state: _d_s, context: delta_c}} = delta_interval, n},
+        %{crdt_state: %{crdt: %DeltaCrdt.Causal{state: _s, context: c}}} = state
       ) do
     last_known_state =
       Enum.map(c, fn
@@ -132,7 +129,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
     new_state =
       if(newest_state - 1 <= last_known_state) do
-        new_crdt_state = state.crdt_module.join(state.crdt_state, delta_interval)
+        new_crdt_state = DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta_interval)
         new_deltas = Map.put(state.deltas, state.sequence_number, delta_interval)
         new_sequence_number = state.sequence_number + 1
 
@@ -162,7 +159,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_cast({:operation, {module, function, args}}, state) do
     delta = apply(module, function, [state.crdt_state, self()] ++ args)
-    new_crdt_state = state.crdt_module.join(state.crdt_state, delta)
+    new_crdt_state = DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta)
     new_deltas = Map.put(state.deltas, state.sequence_number, delta)
 
     new_sequence_number = state.sequence_number + 1
@@ -176,8 +173,9 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, new_state}
   end
 
-  def handle_call({:read, {module, function, args}}, _from, state) do
-    ret = apply(module, function, [state.crdt_state] ++ args)
+  def handle_call(:read, _from, state) do
+    ret = DeltaCrdt.JoinSemilattice.read(state.crdt_state)
+    # ret = apply(module, function, [state.crdt_state] ++ args)
     {:reply, ret, state}
   end
 end
