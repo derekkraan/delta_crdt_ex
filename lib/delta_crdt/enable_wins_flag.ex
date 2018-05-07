@@ -17,14 +17,6 @@ defmodule DeltaCrdt.EnableWinsFlag do
       }
     }
   end
-end
 
-defimpl DeltaCrdt.JoinSemilattice, for: DeltaCrdt.EnableWinsFlag do
-  def join(s1, s2) do
-    %DeltaCrdt.EnableWinsFlag{
-      crdt: DeltaCrdt.JoinSemilattice.join(s1.crdt, s2.crdt)
-    }
-  end
-
-  def read(%{crdt: d}), do: !Enum.empty?(DeltaCrdt.JoinSemilattice.read(d))
+  def read(%{crdt: d}), do: !Enum.empty?(DeltaCrdt.DotSet.read(d))
 end

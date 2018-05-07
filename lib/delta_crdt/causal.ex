@@ -35,8 +35,6 @@ defimpl DeltaCrdt.JoinSemilattice, for: DeltaCrdt.Causal do
     %DeltaCrdt.Causal{context: new_c, state: %DeltaCrdt.DotSet{dots: new_dots}}
   end
 
-  def read(%{state: %DeltaCrdt.DotSet{dots: dots}}), do: MapSet.to_list(dots)
-
   def join(%{context: c1, state: %DeltaCrdt.DotFunction{map: map1}}, %{
         context: c2,
         state: %DeltaCrdt.DotFunction{map: map2}
@@ -68,8 +66,6 @@ defimpl DeltaCrdt.JoinSemilattice, for: DeltaCrdt.Causal do
     %DeltaCrdt.Causal{context: new_c, state: %DeltaCrdt.DotFunction{map: new_map}}
   end
 
-  def read(%{state: %DeltaCrdt.DotFunction{map: map}}), do: Map.keys(map)
-
   def join(%{context: c1, state: %DeltaCrdt.DotMap{map: map1}}, %{
         context: c2,
         state: %DeltaCrdt.DotMap{map: map2}
@@ -97,7 +93,4 @@ defimpl DeltaCrdt.JoinSemilattice, for: DeltaCrdt.Causal do
 
     %DeltaCrdt.Causal{context: new_c, state: %DeltaCrdt.DotFunction{map: new_map}}
   end
-
-  def read(%{state: %DeltaCrdt.DotMap{map: map}}),
-    do: Enum.map(fn {_k, dots} -> read(dots) end) |> Enum.reduce(&Kernel.++/2) |> Enum.uniq()
 end

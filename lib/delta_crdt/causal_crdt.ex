@@ -173,9 +173,8 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, new_state}
   end
 
-  def handle_call(:read, _from, state) do
-    ret = DeltaCrdt.JoinSemilattice.read(state.crdt_state)
-    # ret = apply(module, function, [state.crdt_state] ++ args)
+  def handle_call({:read, module}, _from, state) do
+    ret = apply(module, :read, [state.crdt_state])
     {:reply, ret, state}
   end
 end
