@@ -7,10 +7,12 @@ defmodule DeltaCrdt.CausalCrdt do
   @type delta :: {k :: integer(), delta :: any()}
   @type delta_interval :: {a :: integer(), b :: integer(), delta :: delta()}
 
+  @callback new() :: {initial_state :: any, new_causal_context :: list(tuple())}
+
   @callback join(
-              {state1 :: any(), causal_context_1 :: map()},
-              {state2 :: any(), causal_context_2 :: map()}
-            ) :: {new_state :: any(), new_causal_context :: map()}
+              {state1 :: any(), causal_context_1 :: CausalContext.t()},
+              {state2 :: any(), causal_context_2 :: CausalContext.t()}
+            ) :: {new_state :: any(), new_causal_context :: CausalContext.t()}
 
   @callback value(state :: any()) :: any()
 
