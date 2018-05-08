@@ -1,6 +1,16 @@
 defmodule DeltaCrdt.DotMap do
   defstruct map: %{}
+end
 
-  def read(%{state: %DeltaCrdt.DotMap{map: map}}),
-    do: Enum.map(fn {_k, dots} -> read(dots) end) |> Enum.reduce(&Kernel.++/2) |> Enum.uniq()
+defimpl DeltaCrdt.DotStore, for: DeltaCrdt.DotMap do
+  def dots(%DeltaCrdt.DotMap{map: map}),
+    do:
+      Enum.map(map, fn {_k, dots} -> DeltaCrdt.DotStore.dots(dots) end)
+      |> Enum.reduce(&Kernel.++/2)
+      |> Enum.uniq()
+end
+
+defimpl DeltaCrdt.JoinSemilattice, for: DeltaCrdt.DotMap do
+  def bottom?(%{map: map}) when map_size(map) == 0, do: true
+  def bottom?(_), do: false
 end
