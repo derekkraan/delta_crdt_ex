@@ -110,8 +110,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_info(
         {:delta, neighbour,
-         %{crdt: %DeltaCrdt.Causal{state: _d_s, context: delta_c}} = delta_interval, n},
-        %{crdt_state: %{crdt: %DeltaCrdt.Causal{state: _s, context: c}}} = state
+         %{state: %DeltaCrdt.Causal{state: _d_s, context: delta_c}} = delta_interval, n},
+        %{crdt_state: %{state: %DeltaCrdt.Causal{state: _s, context: c}}} = state
       ) do
     last_known_state =
       Enum.map(c, fn

@@ -16,9 +16,9 @@ end
 
 defimpl DeltaCrdt.JoinSemilattice, for: Any do
   def join(s1, s2) do
-    new_crdt = DeltaCrdt.JoinSemilattice.join(s1.crdt, s2.crdt)
-    %{s1 | crdt: new_crdt}
+    new_state = DeltaCrdt.JoinSemilattice.join(s1.state, s2.state)
+    %{s1 | state: new_state}
   end
 
-  def bottom?(s1), do: DeltaCrdt.JoinSemilattice.bottom?(s1.crdt)
+  def bottom?(s1), do: DeltaCrdt.JoinSemilattice.bottom?(s1.state)
 end
