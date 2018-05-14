@@ -6,11 +6,14 @@ defmodule DeltaCrdt.AddWinsFirstWriteWinsMap do
   defstruct state: %DeltaCrdt.ObservedRemoveMap{}
 
   def add(crdt, i, key, val) do
-    DeltaCrdt.ObservedRemoveMap.apply(
-      crdt,
-      i,
-      {DeltaCrdt.AddWinsSet, :add, {System.system_time(:nanosecond), val}},
-      key
+    DeltaCrdt.ObservedRemoveMap.remove(crdt, i, key)
+    |> DeltaCrdt.JoinSemilattice.join(
+      DeltaCrdt.ObservedRemoveMap.apply(
+        crdt,
+        i,
+        {DeltaCrdt.AddWinsSet, :add, {System.system_time(:nanosecond), val}},
+        key
+      )
     )
   end
 

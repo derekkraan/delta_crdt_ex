@@ -157,7 +157,17 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_cast({:operation, {module, function, args}}, state) do
+  def handle_call({:operation, operation}, state) do
+    new_state = handle_operation(state, operation)
+    {:reply, :ok, new_state}
+  end
+
+  def handle_cast({:operation, operation}, state) do
+    new_state = handle_operation(state, operation)
+    {:noreply, new_state}
+  end
+
+  def handle_operation(state, {module, function, args}) do
     delta = apply(module, function, [state.crdt_state, self()] ++ args)
     new_crdt_state = DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta)
     new_deltas = Map.put(state.deltas, state.sequence_number, delta)
@@ -170,7 +180,7 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Map.put(:crdt_state, new_crdt_state)
       |> Map.put(:sequence_number, new_sequence_number)
 
-    {:noreply, new_state}
+    new_state
   end
 
   def handle_call({:read, module}, _from, state) do
