@@ -133,7 +133,10 @@ defmodule DeltaCrdt.CausalCrdt do
         new_deltas = Map.put(state.deltas, state.sequence_number, delta_interval)
         new_sequence_number = state.sequence_number + 1
 
-        if state.notify_pid, do: send(state.notify_pid, :crdt_state_updated)
+        case state.notify_pid do
+          {pid, msg} -> send(pid, msg)
+          _ -> nil
+        end
 
         %{
           state
@@ -182,7 +185,10 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Map.put(:crdt_state, new_crdt_state)
       |> Map.put(:sequence_number, new_sequence_number)
 
-    if state.notify_pid, do: send(state.notify_pid, :crdt_state_updated)
+    case state.notify_pid do
+      {pid, msg} -> send(pid, msg)
+      _ -> nil
+    end
 
     new_state
   end
