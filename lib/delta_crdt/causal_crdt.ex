@@ -30,7 +30,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defmodule State do
     defstruct notify_pid: nil,
-              neighbours: [],
+              neighbours: MapSet.new(),
               crdt_state: [],
               sequence_number: 0,
               deltas: %{},
@@ -46,28 +46,6 @@ defmodule DeltaCrdt.CausalCrdt do
        notify_pid: notify_pid,
        crdt_state: crdt_state
      }}
-  end
-
-  def handle_info({:add_neighbour, neighbour_pid}, state) do
-    # monitor_neighbours(neighbour_pid)
-    {:noreply, %{state | neighbours: [neighbour_pid | state.neighbours]}}
-  end
-
-  # def handle_info({:remove_neighbour, pid}, state) do
-  # end
-
-  # def handle_info({:DOWN, pid}, state), do: handle_info({:remove_neighbour, pid})
-
-  # defp monitor_neighbours([neighbour | neighbours]) do
-  #   Process.monitor(neighbour)
-  #   monitor_neighbours(neighbours)
-  # end
-
-  # defp monitor_neighbours(neighbour), do: monitor_neighbours([neighbour])
-
-  def handle_info(:ship_interval_or_state_to_all, state) do
-    state.neighbours |> Enum.each(fn neighbour -> ship_state_to_neighbour(neighbour, state) end)
-    {:noreply, state}
   end
 
   defp ship_state_to_neighbour(neighbour, state) do
@@ -90,6 +68,13 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
+  def handle_info(:ship_interval_or_state_to_all, state) do
+    state.neighbours
+    |> Enum.each(fn neighbour -> ship_state_to_neighbour(neighbour, state) end)
+
+    {:noreply, state}
+  end
+
   def handle_info(:ship_interval_or_state, state) do
     neighbour = state.neighbours |> Enum.random()
     ship_state_to_neighbour(neighbour, state)
@@ -106,6 +91,17 @@ defmodule DeltaCrdt.CausalCrdt do
 
     new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end)
     {:noreply, %{state | deltas: new_deltas}}
+  end
+
+  def handle_info({:add_neighbours, pids}, state) do
+    new_neighbours = pids |> Enum.into(MapSet.new()) |> MapSet.union(state.neighbours)
+
+    {:noreply, %{state | neighbours: new_neighbours}}
+  end
+
+  def handle_info({:add_neighbour, neighbour_pid}, state) do
+    new_neighbours = MapSet.put(state.neighbours, neighbour_pid)
+    {:noreply, %{state | neighbours: new_neighbours}}
   end
 
   def handle_info(

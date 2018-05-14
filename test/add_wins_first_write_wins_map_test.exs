@@ -95,7 +95,6 @@ defmodule DeltaCrdt.AddWinsFirstWriteWinsMapTest do
   test "can overwrite value" do
     crdt = %DeltaCrdt.ObservedRemoveMap{}
     {:ok, crdt1} = DeltaCrdt.CausalCrdt.start_link(crdt)
-    {:ok, crdt2} = DeltaCrdt.CausalCrdt.start_link(crdt)
 
     GenServer.cast(
       crdt1,
