@@ -58,8 +58,8 @@ defmodule DeltaCrdt.CausalCrdt do
         state.deltas
         |> Enum.filter(fn {i, _delta} -> remote_acked <= i && i < state.sequence_number end)
         |> Enum.map(fn {_i, delta} -> delta end)
-        |> Enum.reduce(fn delta, delta_interval ->
-          DeltaCrdt.JoinSemilattice.join(delta_interval, delta)
+        |> Enum.reduce(:bottom, fn delta, acc ->
+          DeltaCrdt.JoinSemilattice.join(delta, acc)
         end)
       end
 

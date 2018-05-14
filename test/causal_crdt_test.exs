@@ -15,4 +15,18 @@ defmodule DeltaCrdt.CausalCrdtTest do
     send(crdt2, :ship_interval_or_state_to_all)
     assert_receive :updated_state
   end
+
+  test "can ship multiple times without error" do
+    crdt = %DeltaCrdt.EnableWinsFlag{}
+    {:ok, crdt1} = DeltaCrdt.CausalCrdt.start_link(crdt, {self(), :updated_state})
+    {:ok, crdt2} = DeltaCrdt.CausalCrdt.start_link(crdt)
+    send(crdt1, {:add_neighbour, crdt2})
+    send(crdt2, {:add_neighbour, crdt1})
+
+    GenServer.cast(crdt2, {:operation, {DeltaCrdt.EnableWinsFlag, :disable, []}})
+    send(crdt2, :ship_interval_or_state_to_all)
+    send(crdt2, :ship_interval_or_state_to_all)
+    Process.sleep(10)
+    assert true == Process.alive?(crdt2)
+  end
 end
