@@ -24,26 +24,26 @@ defmodule DeltaCrdt.CausalCrdt do
   @doc """
   Start a DeltaCrdt.
   """
-  def start_link(crdt_state, opts \\ []) do
-    GenServer.start_link(__MODULE__, crdt_state, opts)
+  def start_link(crdt_state, notify_pid \\ nil, opts \\ []) do
+    GenServer.start_link(__MODULE__, {crdt_state, notify_pid}, opts)
   end
 
   defmodule State do
-    # crdt_id: nil,
-    # crdt_name: nil,
-    defstruct neighbours: [],
+    defstruct notify_pid: nil,
+              neighbours: [],
               crdt_state: [],
               sequence_number: 0,
               deltas: %{},
               ack_map: %{}
   end
 
-  def init(crdt_state) do
+  def init({crdt_state, notify_pid}) do
     DeltaCrdt.Periodic.start_link(:ship_interval_or_state, @ship_interval)
     DeltaCrdt.Periodic.start_link(:garbage_collect_deltas, @gc_interval)
 
     {:ok,
      %State{
+       notify_pid: notify_pid,
        crdt_state: crdt_state
      }}
   end
@@ -133,6 +133,8 @@ defmodule DeltaCrdt.CausalCrdt do
         new_deltas = Map.put(state.deltas, state.sequence_number, delta_interval)
         new_sequence_number = state.sequence_number + 1
 
+        if state.notify_pid, do: send(state.notify_pid, :crdt_state_updated)
+
         %{
           state
           | crdt_state: new_crdt_state,
@@ -179,6 +181,8 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Map.put(:deltas, new_deltas)
       |> Map.put(:crdt_state, new_crdt_state)
       |> Map.put(:sequence_number, new_sequence_number)
+
+    if state.notify_pid, do: send(state.notify_pid, :crdt_state_updated)
 
     new_state
   end
