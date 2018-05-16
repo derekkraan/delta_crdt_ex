@@ -158,11 +158,6 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_call({:operation, operation}, state) do
-    new_state = handle_operation(state, operation)
-    {:reply, :ok, new_state}
-  end
-
   def handle_cast({:operation, operation}, state) do
     new_state = handle_operation(state, operation)
     {:noreply, new_state}
@@ -187,6 +182,11 @@ defmodule DeltaCrdt.CausalCrdt do
     end
 
     new_state
+  end
+  
+  def handle_call({:operation, operation}, _from, state) do
+    new_state = handle_operation(state, operation)
+    {:reply, :ok, new_state}
   end
 
   def handle_call({:read, module}, _from, state) do
