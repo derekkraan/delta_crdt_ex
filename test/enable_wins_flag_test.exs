@@ -37,7 +37,7 @@ defmodule DeltaCrdt.EnableWinsFlagTest do
     send(crdt2, {:add_neighbour, crdt3})
     send(crdt3, {:add_neighbour, crdt1})
     send(crdt3, {:add_neighbour, crdt2})
-    GenServer.cast(crdt1, {:operation, {DeltaCrdt.EnableWinsFlag, :enable, []}})
+    GenServer.call(crdt1, {:operation, {DeltaCrdt.EnableWinsFlag, :enable, []}})
 
     assert true == GenServer.call(crdt1, {:read, DeltaCrdt.EnableWinsFlag})
 
