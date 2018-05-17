@@ -101,7 +101,7 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
       |> Enum.min()
 
-    new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end)
+    new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Enum.into(%{})
     {:noreply, %{state | deltas: new_deltas}}
   end
 
@@ -213,7 +213,7 @@ defmodule DeltaCrdt.CausalCrdt do
       _ -> nil
     end
 
-    Process.send_after(self(), {:ship, new_state.sequence_number}, @ship_debounce)
+    Process.send_after(self(), {:ship, new_sequence_number}, @ship_debounce)
 
     new_state
   end
