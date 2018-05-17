@@ -52,27 +52,27 @@ defmodule DeltaCrdt.CausalCrdt do
   defp ship_state_to_neighbour(neighbour, state) do
     remote_acked = Map.get(state.ack_map, neighbour, 0)
 
-    delta_interval =
-      if Enum.empty?(state.deltas) || Map.keys(state.deltas) |> Enum.min() > remote_acked do
-        state.crdt_state
-      else
-        state.deltas
-        |> Enum.filter(fn {i, _delta} -> remote_acked <= i && i < state.sequence_number end)
-        |> case do
-          [] ->
-            nil
+    if Enum.empty?(state.deltas) || Map.keys(state.deltas) |> Enum.min() > remote_acked do
+      send(neighbour, {:delta, self(), state.crdt_state, state.sequence_number})
+    else
+      state.deltas
+      |> Enum.filter(fn {i, _delta} -> remote_acked <= i && i < state.sequence_number end)
+      |> case do
+        [] ->
+          nil
 
-          deltas ->
+        deltas ->
+          delta_interval =
             deltas
             |> Enum.map(fn {_i, delta} -> delta end)
             |> Enum.reduce(fn delta, delta_interval ->
               DeltaCrdt.JoinSemilattice.join(delta_interval, delta)
             end)
-        end
-      end
 
-    if(!is_nil(delta_interval) && remote_acked < state.sequence_number) do
-      send(neighbour, {:delta, self(), delta_interval, state.sequence_number})
+          if(remote_acked < state.sequence_number) do
+            send(neighbour, {:delta, self(), delta_interval, state.sequence_number})
+          end
+      end
     end
   end
 
