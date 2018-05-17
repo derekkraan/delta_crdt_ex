@@ -6,7 +6,7 @@ defmodule DeltaCrdt.Causal do
       {^i, val} -> val
       _ -> 0
     end)
-    |> Enum.max(fn -> 0 end)
+    |> Enum.max(fn -> -1 end)
   end
 
   def maximum(c, i) do

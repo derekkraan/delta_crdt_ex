@@ -125,46 +125,45 @@ defmodule DeltaCrdt.CausalCrdt do
          %{state: %DeltaCrdt.Causal{state: _d_s, context: delta_c}} = delta_interval, n},
         %{crdt_state: %{state: %DeltaCrdt.Causal{state: _s, context: c}}} = state
       ) do
-    last_known_state =
-      Enum.map(c, fn
-        {^neighbour, val} -> val
-        _ -> 0
+    last_known_states =
+      Enum.reduce(c, %{}, fn {n, v}, acc ->
+        Map.update(acc, n, v, fn y -> Enum.max([v, y]) end)
       end)
-      |> Enum.max(fn -> 0 end)
 
-    newest_state =
-      Enum.map(delta_c, fn
-        {^neighbour, val} -> val
-        _ -> 0
+    first_new_states =
+      Enum.reduce(delta_c, %{}, fn {n, v}, acc ->
+        Map.update(acc, n, v, fn y -> Enum.min([v, y]) end)
       end)
-      |> Enum.max(fn -> 0 end)
 
-    new_state =
-      if(newest_state - 1 <= last_known_state) do
-        new_crdt_state = DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta_interval)
-        new_deltas = Map.put(state.deltas, state.sequence_number, delta_interval)
-        new_sequence_number = state.sequence_number + 1
+    reject =
+      first_new_states
+      |> Enum.find(false, fn {n, v} -> Map.get(last_known_states, n, 0) + 1 < v end)
 
-        case state.notify_pid do
-          {pid, msg} -> send(pid, msg)
-          _ -> nil
-        end
+    if reject do
+      send(neighbour, {:ack, self(), n})
+      {:noreply, state}
+    else
+      new_crdt_state = DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta_interval)
+      new_deltas = Map.put(state.deltas, state.sequence_number, delta_interval)
+      new_sequence_number = state.sequence_number + 1
 
-        Process.send_after(self(), {:ship, new_sequence_number}, @ship_debounce)
-
-        %{
-          state
-          | crdt_state: new_crdt_state,
-            deltas: new_deltas,
-            sequence_number: new_sequence_number
-        }
-      else
-        state
+      case state.notify_pid do
+        {pid, msg} -> send(pid, msg)
+        _ -> nil
       end
 
-    send(neighbour, {:ack, self(), n})
+      Process.send_after(self(), {:ship, new_sequence_number}, @ship_debounce)
 
-    {:noreply, new_state}
+      new_state = %{
+        state
+        | crdt_state: new_crdt_state,
+          deltas: new_deltas,
+          sequence_number: new_sequence_number
+      }
+
+      send(neighbour, {:ack, self(), n})
+      {:noreply, new_state}
+    end
   end
 
   def handle_info({:ack, neighbour, n}, state) do
@@ -176,7 +175,7 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_info({:ship, _s}, %{sequence_number: _s, neighbours: neighbours}, state) do
+  def handle_info({:ship, s}, %{sequence_number: s, neighbours: neighbours} = state) do
     Enum.each(neighbours, fn n -> ship_state_to_neighbour(n, state) end)
 
     {:noreply, state}

@@ -108,4 +108,33 @@ defmodule DeltaCrdt.AddWinsFirstWriteWinsMapTest do
 
     assert %{"Derek" => 2} == GenServer.call(crdt1, {:read, DeltaCrdt.AddWinsFirstWriteWinsMap})
   end
+
+  test "CRDTs converge" do
+    alias DeltaCrdt.{ObservedRemoveMap, CausalCrdt, AddWinsFirstWriteWinsMap}
+    crdt = %ObservedRemoveMap{}
+    {:ok, crdt1} = CausalCrdt.start_link(crdt)
+    {:ok, crdt2} = CausalCrdt.start_link(crdt)
+    {:ok, crdt3} = CausalCrdt.start_link(crdt)
+    {:ok, crdt4} = CausalCrdt.start_link(crdt)
+    send(crdt1, {:add_neighbours, [crdt2, crdt3, crdt4]})
+    send(crdt2, {:add_neighbours, [crdt1, crdt3, crdt4]})
+    send(crdt3, {:add_neighbours, [crdt1, crdt2, crdt4]})
+    send(crdt4, {:add_neighbours, [crdt1, crdt2, crdt3]})
+
+    GenServer.call(crdt1, {:operation, {AddWinsFirstWriteWinsMap, :add, ["Derek", "Kraan"]}})
+
+    GenServer.call(crdt1, {:operation, {AddWinsFirstWriteWinsMap, :add, ["Tonci", "Galic"]}})
+
+    GenServer.call(crdt2, {:operation, {AddWinsFirstWriteWinsMap, :add, ["Tom", "Hoenderdos"]}})
+
+    GenServer.call(crdt2, {:operation, {AddWinsFirstWriteWinsMap, :add, ["Koen", "Kuit"]}})
+
+    GenServer.call(crdt3, {:operation, {AddWinsFirstWriteWinsMap, :add, ["Sanne", "Kalkman"]}})
+
+    GenServer.call(crdt3, {:operation, {AddWinsFirstWriteWinsMap, :add, ["IJzer", "IJzer"]}})
+
+    Process.sleep(300)
+
+    assert 6 = GenServer.call(crdt1, {:read, AddWinsFirstWriteWinsMap}) |> Enum.count()
+  end
 end
