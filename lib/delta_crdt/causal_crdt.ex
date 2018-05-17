@@ -58,13 +58,20 @@ defmodule DeltaCrdt.CausalCrdt do
       else
         state.deltas
         |> Enum.filter(fn {i, _delta} -> remote_acked <= i && i < state.sequence_number end)
-        |> Enum.map(fn {_i, delta} -> delta end)
-        |> Enum.reduce(fn delta, delta_interval ->
-          DeltaCrdt.JoinSemilattice.join(delta_interval, delta)
-        end)
+        |> case do
+          [] ->
+            nil
+
+          deltas ->
+            deltas
+            |> Enum.map(fn {_i, delta} -> delta end)
+            |> Enum.reduce(fn delta, delta_interval ->
+              DeltaCrdt.JoinSemilattice.join(delta_interval, delta)
+            end)
+        end
       end
 
-    if(remote_acked < state.sequence_number) do
+    if(!is_nil(delta_interval) && remote_acked < state.sequence_number) do
       send(neighbour, {:delta, self(), delta_interval, state.sequence_number})
     end
   end
