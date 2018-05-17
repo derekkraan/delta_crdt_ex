@@ -95,14 +95,18 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_info(:garbage_collect_deltas, state) do
-    l =
-      state.neighbours
-      |> Enum.filter(fn neighbour -> Map.has_key?(state.ack_map, neighbour) end)
-      |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
-      |> Enum.min()
+    if Enum.empty?(state.neighbours) do
+      {:noreply, state}
+    else
+      l =
+        state.neighbours
+        |> Enum.filter(fn neighbour -> Map.has_key?(state.ack_map, neighbour) end)
+        |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
+        |> Enum.min()
 
-    new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Enum.into(%{})
-    {:noreply, %{state | deltas: new_deltas}}
+      new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Enum.into(%{})
+      {:noreply, %{state | deltas: new_deltas}}
+    end
   end
 
   def handle_info({:add_neighbours, pids}, state) do
