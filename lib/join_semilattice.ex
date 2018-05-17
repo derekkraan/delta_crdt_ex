@@ -15,14 +15,10 @@ defprotocol DeltaCrdt.JoinSemilattice do
 end
 
 defimpl DeltaCrdt.JoinSemilattice, for: Any do
-  def join(s1, :bottom), do: s1
-  def join(:bottom, s1), do: s1
-
   def join(s1, s2) do
     new_state = DeltaCrdt.JoinSemilattice.join(s1.state, s2.state)
     %{s1 | state: new_state}
   end
 
-  def bottom?(:bottom), do: true
   def bottom?(s1), do: DeltaCrdt.JoinSemilattice.bottom?(s1.state)
 end

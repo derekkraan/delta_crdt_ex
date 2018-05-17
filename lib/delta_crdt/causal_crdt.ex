@@ -58,8 +58,8 @@ defmodule DeltaCrdt.CausalCrdt do
         state.deltas
         |> Enum.filter(fn {i, _delta} -> remote_acked <= i && i < state.sequence_number end)
         |> Enum.map(fn {_i, delta} -> delta end)
-        |> Enum.reduce(:bottom, fn delta, acc ->
-          DeltaCrdt.JoinSemilattice.join(delta, acc)
+        |> Enum.reduce(fn delta, delta_interval ->
+          DeltaCrdt.JoinSemilattice.join(delta_interval, delta)
         end)
       end
 
@@ -75,9 +75,13 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, state}
   end
 
-  def handle_info(:ship_interval_or_state, state) do
-    neighbour = state.neighbours |> Enum.random()
-    ship_state_to_neighbour(neighbour, state)
+  def handle_info(:ship_interval_or_state, %{neighbours: neighbours} = state) do
+    if Enum.empty?(neighbours) do
+      {:noreply, state}
+    else
+      neighbour = neighbours |> Enum.random()
+      ship_state_to_neighbour(neighbour, state)
+    end
 
     {:noreply, state}
   end
@@ -158,7 +162,12 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_call({:operation, operation}, state) do
+  def handle_call({:read, module}, _from, state) do
+    ret = apply(module, :read, [state.crdt_state])
+    {:reply, ret, state}
+  end
+
+  def handle_call({:operation, operation}, _from, state) do
     new_state = handle_operation(state, operation)
     {:reply, :ok, new_state}
   end
@@ -187,11 +196,6 @@ defmodule DeltaCrdt.CausalCrdt do
     end
 
     new_state
-  end
-
-  def handle_call({:read, module}, _from, state) do
-    ret = apply(module, :read, [state.crdt_state])
-    {:reply, ret, state}
   end
 end
 

@@ -24,10 +24,7 @@ defmodule DeltaCrdt.AddWinsFirstWriteWinsMap do
   def read(%{state: %{state: %{map: map}}}) do
     map
     |> Enum.map(fn {key, %{map: vals}} ->
-      val =
-        Map.keys(vals)
-        |> Enum.min_by(fn {timestamp, _} -> timestamp end)
-        |> elem(1)
+      {_, val} = Map.keys(vals) |> Enum.min_by(fn {timestamp, _} -> timestamp end)
 
       {key, val}
     end)
