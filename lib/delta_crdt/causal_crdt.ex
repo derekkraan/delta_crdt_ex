@@ -102,7 +102,7 @@ defmodule DeltaCrdt.CausalCrdt do
         state.neighbours
         |> Enum.filter(fn neighbour -> Map.has_key?(state.ack_map, neighbour) end)
         |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
-        |> Enum.min()
+        |> Enum.min(fn -> 0 end)
 
       new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Enum.into(%{})
       {:noreply, %{state | deltas: new_deltas}}
