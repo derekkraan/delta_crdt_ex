@@ -1,8 +1,9 @@
 defmodule DeltaCrdt.CausalCrdt do
   use GenServer
 
-  @ship_interval 10_000
-  @gc_interval 120_000
+  @ship_debounce 200
+  @ship_interval 5000
+  @gc_interval 10_000
 
   @type delta :: {k :: integer(), delta :: any()}
   @type delta_interval :: {a :: integer(), b :: integer(), delta :: delta()}
@@ -70,7 +71,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_info(:ship_interval_or_state_to_all, state) do
     state.neighbours
-    |> Enum.each(fn neighbour -> ship_state_to_neighbour(neighbour, state) end)
+    |> Enum.each(fn n -> ship_state_to_neighbour(n, state) end)
 
     {:noreply, state}
   end
@@ -150,6 +151,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
     send(neighbour, {:ack, self(), n})
 
+    Process.send_after(self(), {:ship, new_state.sequence_number}, @ship_debounce)
+
     {:noreply, new_state}
   end
 
@@ -161,6 +164,14 @@ defmodule DeltaCrdt.CausalCrdt do
       {:noreply, %{state | ack_map: new_ack_map}}
     end
   end
+
+  def handle_info({:ship, _s}, %{sequence_number: _s, neighbours: neighbours}, state) do
+    Enum.each(neighbours, fn n -> ship_state_to_neighbour(n, state) end)
+
+    {:noreply, state}
+  end
+
+  def handle_info({:ship, _s}, state), do: {:noreply, state}
 
   def handle_call({:read, module}, _from, state) do
     ret = apply(module, :read, [state.crdt_state])
@@ -194,6 +205,8 @@ defmodule DeltaCrdt.CausalCrdt do
       {pid, msg} -> send(pid, msg)
       _ -> nil
     end
+
+    Process.send_after(self(), {:ship, new_state.sequence_number}, @ship_debounce)
 
     new_state
   end
