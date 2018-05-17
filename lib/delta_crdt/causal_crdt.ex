@@ -152,8 +152,6 @@ defmodule DeltaCrdt.CausalCrdt do
         _ -> nil
       end
 
-      Process.send_after(self(), {:ship, new_sequence_number}, @ship_debounce)
-
       new_state = %{
         state
         | crdt_state: new_crdt_state,
