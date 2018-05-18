@@ -33,7 +33,7 @@ defmodule DeltaCrdt.CausalCrdt do
     defstruct node_id: nil,
               notify_pid: nil,
               neighbours: MapSet.new(),
-              crdt_state: [],
+              crdt_state: nil,
               sequence_number: 0,
               deltas: %{},
               ack_map: %{}
