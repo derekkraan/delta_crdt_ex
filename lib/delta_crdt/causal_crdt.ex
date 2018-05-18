@@ -30,7 +30,8 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defmodule State do
-    defstruct notify_pid: nil,
+    defstruct node_id: nil,
+              notify_pid: nil,
               neighbours: MapSet.new(),
               crdt_state: [],
               sequence_number: 0,
@@ -44,6 +45,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
     {:ok,
      %State{
+       node_id: :rand.uniform(1_000_000_000),
        notify_pid: notify_pid,
        crdt_state: crdt_state
      }}
@@ -53,9 +55,13 @@ defmodule DeltaCrdt.CausalCrdt do
     remote_acked = Map.get(state.ack_map, neighbour, 0)
 
     if Enum.empty?(state.deltas) || Map.keys(state.deltas) |> Enum.min() > remote_acked do
-      send(neighbour, {:delta, self(), state.crdt_state, state.sequence_number})
+      send(neighbour, {:delta, {self(), state.crdt_state}, state.sequence_number})
     else
       state.deltas
+      |> Enum.reject(fn
+        {_i, {^neighbour, _delta}} -> true
+        _ -> false
+      end)
       |> Enum.filter(fn {i, _delta} -> remote_acked <= i && i < state.sequence_number end)
       |> case do
         [] ->
@@ -64,13 +70,13 @@ defmodule DeltaCrdt.CausalCrdt do
         deltas ->
           delta_interval =
             deltas
-            |> Enum.map(fn {_i, delta} -> delta end)
+            |> Enum.map(fn {_i, {_from, delta}} -> delta end)
             |> Enum.reduce(fn delta, delta_interval ->
               DeltaCrdt.JoinSemilattice.join(delta_interval, delta)
             end)
 
           if(remote_acked < state.sequence_number) do
-            send(neighbour, {:delta, self(), delta_interval, state.sequence_number})
+            send(neighbour, {:delta, {self(), delta_interval}, state.sequence_number})
           end
       end
     end
@@ -104,13 +110,13 @@ defmodule DeltaCrdt.CausalCrdt do
         |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
         |> Enum.min(fn -> 0 end)
 
-      new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Enum.into(%{})
+      new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Map.new()
       {:noreply, %{state | deltas: new_deltas}}
     end
   end
 
   def handle_info({:add_neighbours, pids}, state) do
-    new_neighbours = pids |> Enum.into(MapSet.new()) |> MapSet.union(state.neighbours)
+    new_neighbours = pids |> MapSet.new() |> MapSet.union(state.neighbours)
 
     {:noreply, %{state | neighbours: new_neighbours}}
   end
@@ -121,8 +127,9 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_info(
-        {:delta, neighbour,
-         %{state: %DeltaCrdt.Causal{state: _d_s, context: delta_c}} = delta_interval, n},
+        {:delta,
+         {neighbour, %{state: %DeltaCrdt.Causal{state: _d_s, context: delta_c}} = delta_interval},
+         n},
         %{crdt_state: %{state: %DeltaCrdt.Causal{state: _s, context: c}}} = state
       ) do
     last_known_states =
@@ -143,8 +150,11 @@ defmodule DeltaCrdt.CausalCrdt do
       send(neighbour, {:ack, self(), n})
       {:noreply, state}
     else
-      new_crdt_state = DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta_interval)
-      new_deltas = Map.put(state.deltas, state.sequence_number, delta_interval)
+      new_crdt_state =
+        DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta_interval)
+        |> DeltaCrdt.JoinSemilattice.compress()
+
+      new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, delta_interval})
       new_sequence_number = state.sequence_number + 1
 
       case state.notify_pid do
@@ -197,9 +207,13 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_operation(state, {module, function, args}) do
-    delta = apply(module, function, [state.crdt_state, self()] ++ args)
-    new_crdt_state = DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta)
-    new_deltas = Map.put(state.deltas, state.sequence_number, delta)
+    delta = apply(module, function, [state.crdt_state, state.node_id] ++ args)
+
+    new_crdt_state =
+      DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta)
+      |> DeltaCrdt.JoinSemilattice.compress()
+
+    new_deltas = Map.put(state.deltas, state.sequence_number, {self(), delta})
 
     new_sequence_number = state.sequence_number + 1
 

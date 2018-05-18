@@ -6,7 +6,7 @@ defmodule DeltaCrdt.AddWinsSet do
 
   def add(%{state: %{state: s, context: c}}, i, e) do
     s = replace_bottom(s)
-    d = [DeltaCrdt.Causal.next(c, i)] |> Enum.into(MapSet.new())
+    d = [DeltaCrdt.Causal.next(c, i)] |> MapSet.new()
     new_c = Map.get(s.map, e, %DeltaCrdt.DotSet{}).dots |> MapSet.union(d)
 
     %__MODULE__{
@@ -25,29 +25,27 @@ defmodule DeltaCrdt.AddWinsSet do
 
   def add(map, i, e), do: add(%{state: map}, i, e)
 
-  def remove(%{state: %{state: s, context: c}}, i, e) do
-    d = [DeltaCrdt.Causal.next(c, i)] |> Enum.into(MapSet.new())
-
+  def remove(%{state: %{state: s}}, _i, e) do
     %__MODULE__{
       state: %DeltaCrdt.Causal{
         context:
           DeltaCrdt.DotStore.dots(Map.get(s.map, e, %DeltaCrdt.DotSet{}))
-          |> Enum.into(MapSet.new()),
+          |> MapSet.new(),
         state: %DeltaCrdt.DotMap{}
       }
     }
   end
 
-  def clear(%{state: %{state: s, context: c}}, _i) do
+  def clear(%{state: %{state: s}}, _i) do
     %__MODULE__{
       state: %DeltaCrdt.Causal{
-        context: DeltaCrdt.DotStore.dots(s) |> Enum.into(MapSet.new()),
+        context: DeltaCrdt.DotStore.dots(s) |> MapSet.new(),
         state: %DeltaCrdt.DotMap{}
       }
     }
   end
 
-  def read(%{state: %{state: %{map: map}, context: c}} = thing) do
+  def read(%{state: %{state: %{map: map}}}) do
     Map.keys(map)
   end
 end

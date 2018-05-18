@@ -12,6 +12,9 @@ defprotocol DeltaCrdt.JoinSemilattice do
   is the state at "bottom" (ie, empty)?
   """
   def bottom?(s1)
+
+  @doc "compress the state"
+  def compress(s1)
 end
 
 defimpl DeltaCrdt.JoinSemilattice, for: Any do
@@ -21,4 +24,7 @@ defimpl DeltaCrdt.JoinSemilattice, for: Any do
   end
 
   def bottom?(s1), do: DeltaCrdt.JoinSemilattice.bottom?(s1.state)
+
+  def compress(%{state: s} = s1), do: %{s1 | state: DeltaCrdt.JoinSemilattice.compress(s)}
+  def compress(s1), do: s1
 end

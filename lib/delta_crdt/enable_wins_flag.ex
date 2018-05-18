@@ -2,7 +2,7 @@ defmodule DeltaCrdt.EnableWinsFlag do
   defstruct state: %DeltaCrdt.Causal{state: %DeltaCrdt.DotSet{}}
 
   def enable(%{state: %{state: s, context: c}}, i) do
-    d = [DeltaCrdt.Causal.next(c, i)] |> Enum.into(MapSet.new())
+    d = [DeltaCrdt.Causal.next(c, i)] |> MapSet.new()
 
     new_c = MapSet.union(d, s.dots)
 

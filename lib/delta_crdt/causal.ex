@@ -23,6 +23,19 @@ end
 defimpl DeltaCrdt.JoinSemilattice, for: DeltaCrdt.Causal do
   def bottom?(%{state: state}), do: DeltaCrdt.JoinSemilattice.bottom?(state)
 
+  def compress(%{context: c} = state) do
+    new_c =
+      Enum.reduce(c, %{}, fn {i, x}, acc ->
+        Map.update(acc, i, x, fn
+          y when y > x -> y
+          _y -> x
+        end)
+      end)
+      |> MapSet.new()
+
+    %{state | context: new_c}
+  end
+
   def join(%{state: :bottom} = crdt1, %{state: %DeltaCrdt.DotSet{}} = crdt2),
     do: join(%{crdt1 | state: %DeltaCrdt.DotSet{}}, crdt2)
 
@@ -53,15 +66,15 @@ defimpl DeltaCrdt.JoinSemilattice, for: DeltaCrdt.Causal do
         context: c2,
         state: %DeltaCrdt.DotFunction{map: map2}
       }) do
-    keys1 = Map.keys(map1) |> Enum.into(MapSet.new())
-    keys2 = Map.keys(map2) |> Enum.into(MapSet.new())
+    keys1 = Map.keys(map1) |> MapSet.new()
+    keys2 = Map.keys(map2) |> MapSet.new()
 
     term1 =
       MapSet.intersection(keys1, keys2)
       |> Enum.map(fn key ->
         {key, DeltaCrdt.JoinSemilattice.join(Map.get(map1, key), Map.get(map2, key))}
       end)
-      |> Enum.into(%{})
+      |> Map.new()
 
     term2 =
       Enum.reject(map1, fn {d, v} ->
@@ -90,12 +103,10 @@ defimpl DeltaCrdt.JoinSemilattice, for: DeltaCrdt.Causal do
         context: c2,
         state: %DeltaCrdt.DotMap{map: map2}
       }) do
-    keys1 = Map.keys(map1) |> Enum.into(MapSet.new())
-    keys2 = Map.keys(map2) |> Enum.into(MapSet.new())
+    all_keys = (Map.keys(map1) ++ Map.keys(map2)) |> Enum.uniq()
 
     new_map =
-      MapSet.union(keys1, keys2)
-      |> Enum.map(fn key ->
+      Enum.map(all_keys, fn key ->
         val =
           DeltaCrdt.JoinSemilattice.join(
             %DeltaCrdt.Causal{context: c1, state: Map.get(map1, key, :bottom)},
@@ -106,7 +117,7 @@ defimpl DeltaCrdt.JoinSemilattice, for: DeltaCrdt.Causal do
         {key, val}
       end)
       |> Enum.reject(fn {_key, state} -> DeltaCrdt.JoinSemilattice.bottom?(state) end)
-      |> Enum.into(%{})
+      |> Map.new()
 
     new_c = MapSet.union(c1, c2)
 

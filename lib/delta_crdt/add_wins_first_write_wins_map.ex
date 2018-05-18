@@ -28,6 +28,6 @@ defmodule DeltaCrdt.AddWinsFirstWriteWinsMap do
 
       {key, val}
     end)
-    |> Enum.into(%{})
+    |> Map.new()
   end
 end

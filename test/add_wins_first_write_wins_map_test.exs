@@ -133,8 +133,69 @@ defmodule DeltaCrdt.AddWinsFirstWriteWinsMapTest do
 
     GenServer.call(crdt3, {:operation, {AddWinsFirstWriteWinsMap, :add, ["IJzer", "IJzer"]}})
 
-    Process.sleep(300)
+    Process.sleep(500)
 
     assert 6 = GenServer.call(crdt1, {:read, AddWinsFirstWriteWinsMap}) |> Enum.count()
   end
+
+  # test "CRDT memory is constrained" do
+  #   alias DeltaCrdt.{ObservedRemoveMap, CausalCrdt, AddWinsFirstWriteWinsMap}
+  #   crdt = %ObservedRemoveMap{}
+  #   {:ok, crdt1} = CausalCrdt.start_link(crdt)
+  #   {:ok, crdt2} = CausalCrdt.start_link(crdt)
+  #   send(crdt1, {:add_neighbours, [crdt2]})
+  #   send(crdt2, {:add_neighbours, [crdt1]})
+
+  #   check_memory_forever = fn pid, fun ->
+  #     Process.info(pid, :memory) |> IO.inspect()
+  #     # :sys.get_status(pid) |> IO.inspect()
+  #     Process.sleep(1000)
+  #     send(crdt1, :garbage_collect_deltas)
+  #     fun.(pid, fun)
+  #   end
+
+  #   spawn(fn -> check_memory_forever.(crdt1, check_memory_forever) end)
+
+  #   max = 2000
+
+  #   IO.puts("writing #{max} values")
+
+  #   1..max
+  #   |> Enum.each(fn x ->
+  #     GenServer.call(
+  #       crdt1,
+  #       {:operation, {AddWinsFirstWriteWinsMap, :add, ["foo_#{x}", "fooooooobar_#{x}"]}},
+  #       10000
+  #     )
+  #   end)
+
+  #   IO.puts("removing #{max - 1} values")
+
+  #   1..(max - 1)
+  #   |> Enum.each(fn x ->
+  #     GenServer.call(
+  #       crdt1,
+  #       {:operation, {AddWinsFirstWriteWinsMap, :remove, ["foo_#{x}"]}},
+  #       10000
+  #     )
+  #   end)
+
+  #   Process.sleep(20_000)
+  #   # Process.sleep(5000)
+
+  #   # IO.puts("triggering GC")
+  #   # send(crdt1, :garbage_collect_deltas)
+
+  #   # Process.sleep(15000)
+
+  #   # IO.puts("triggering GC")
+  #   # send(crdt1, :garbage_collect_deltas)
+
+  #   # Process.sleep(5000)
+
+  #   :sys.get_status(crdt1) |> IO.inspect()
+
+  #   GenServer.call(crdt1, {:read, AddWinsFirstWriteWinsMap}, 10000) |> IO.inspect()
+  #   GenServer.call(crdt2, {:read, AddWinsFirstWriteWinsMap}, 10000) |> IO.inspect()
+  # end
 end

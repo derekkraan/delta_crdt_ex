@@ -3,11 +3,11 @@ defmodule DeltaCrdt.DotMap do
 end
 
 defimpl DeltaCrdt.DotStore, for: DeltaCrdt.DotMap do
-  def dots(%DeltaCrdt.DotMap{map: map}),
-    do:
-      Enum.map(map, fn {_k, dots} -> DeltaCrdt.DotStore.dots(dots) end)
-      |> Enum.reduce(&Kernel.++/2)
-      |> Enum.uniq()
+  def dots(%DeltaCrdt.DotMap{map: map}) do
+    Enum.map(map, fn {_k, dots} -> DeltaCrdt.DotStore.dots(dots) end)
+    |> List.flatten()
+    |> Enum.uniq()
+  end
 end
 
 defimpl DeltaCrdt.JoinSemilattice, for: DeltaCrdt.DotMap do

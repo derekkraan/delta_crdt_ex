@@ -17,22 +17,22 @@ defmodule DeltaCrdt.ObservedRemoveMap do
     }
   end
 
-  def remove(%{state: %{state: s, context: c}}, _i, e) do
+  def remove(%{state: %{state: s}}, _i, e) do
     %__MODULE__{
       state: %DeltaCrdt.Causal{
         state: %DeltaCrdt.DotMap{},
         context:
           DeltaCrdt.DotStore.dots(Map.get(s.map, e, %DeltaCrdt.DotSet{}))
-          |> Enum.into(MapSet.new())
+          |> MapSet.new()
       }
     }
   end
 
-  def clear(%{state: %{state: s, context: c}}, _i) do
+  def clear(%{state: %{state: s}}, _i) do
     %__MODULE__{
       state: %DeltaCrdt.Causal{
         state: %DeltaCrdt.DotMap{},
-        context: DeltaCrdt.DotStore.dots(s) |> Enum.into(MapSet.new())
+        context: DeltaCrdt.DotStore.dots(s) |> MapSet.new()
       }
     }
   end

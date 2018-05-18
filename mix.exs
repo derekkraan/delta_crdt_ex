@@ -21,7 +21,7 @@ defmodule DeltaCrdt.MixProject do
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
-    []
+    [{:benchee, ">= 0.0.0", only: :dev}, {:exprof, "~> 0.2.0", only: :dev}]
   end
 
   defp package do
