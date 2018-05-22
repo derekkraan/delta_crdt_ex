@@ -4,8 +4,7 @@ end
 
 defimpl DeltaCrdt.DotStore, for: DeltaCrdt.DotMap do
   def dots(%DeltaCrdt.DotMap{map: map}) do
-    Enum.map(map, fn {_k, dots} -> DeltaCrdt.DotStore.dots(dots) end)
-    |> List.flatten()
+    Enum.flat_map(map, fn {_k, dots} -> DeltaCrdt.DotStore.dots(dots) end)
     |> Enum.uniq()
   end
 end
