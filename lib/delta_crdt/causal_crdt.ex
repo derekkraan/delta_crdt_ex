@@ -8,15 +8,6 @@ defmodule DeltaCrdt.CausalCrdt do
   @type delta :: {k :: integer(), delta :: any()}
   @type delta_interval :: {a :: integer(), b :: integer(), delta :: delta()}
 
-  # @callback new() :: {initial_state :: any, new_causal_context :: list(tuple())}
-
-  # @callback join(
-  #             {state1 :: any(), causal_context_1 :: CausalContext.t()},
-  #             {state2 :: any(), causal_context_2 :: CausalContext.t()}
-  #           ) :: {new_state :: any(), new_causal_context :: CausalContext.t()}
-
-  # @callback value(state :: any()) :: any()
-
   @moduledoc """
   DeltaCrdt implements Algorithm 2 from `Delta State Replicated Data Types – Almeida et al. 2016`
   which is an anti-entropy algorithm for δ-CRDTs. You can find the original paper here: https://arxiv.org/pdf/1603.01529.pdf
