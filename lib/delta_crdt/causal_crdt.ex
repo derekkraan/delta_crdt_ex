@@ -63,7 +63,7 @@ defmodule DeltaCrdt.CausalCrdt do
             deltas
             |> Enum.map(fn {_i, {_from, delta}} -> delta end)
             |> Enum.reduce(fn delta, delta_interval ->
-              DeltaCrdt.JoinSemilattice.join(delta_interval, delta)
+              DeltaCrdt.SemiLattice.join(delta_interval, delta)
             end)
 
           if(remote_acked < state.sequence_number) do
@@ -118,18 +118,13 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_info(
-        {:delta,
-         {neighbour, %{state: %DeltaCrdt.Causal{state: _d_s, context: delta_c}} = delta_interval},
-         n},
-        %{crdt_state: %{state: %DeltaCrdt.Causal{state: _s, context: c}}} = state
+        {:delta, {neighbour, %{state: _d_s, causal_context: delta_c} = delta_interval}, n},
+        %{crdt_state: %{state: _s, causal_context: c}} = state
       ) do
-    last_known_states =
-      Enum.reduce(c, %{}, fn {n, v}, acc ->
-        Map.update(acc, n, v, fn y -> Enum.max([v, y]) end)
-      end)
+    last_known_states = c.maxima
 
     first_new_states =
-      Enum.reduce(delta_c, %{}, fn {n, v}, acc ->
+      Enum.reduce(delta_c.dots, %{}, fn {n, v}, acc ->
         Map.update(acc, n, v, fn y -> Enum.min([v, y]) end)
       end)
 
@@ -142,8 +137,8 @@ defmodule DeltaCrdt.CausalCrdt do
       {:noreply, state}
     else
       new_crdt_state =
-        DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta_interval)
-        |> DeltaCrdt.JoinSemilattice.compress()
+        DeltaCrdt.SemiLattice.join(state.crdt_state, delta_interval)
+        |> DeltaCrdt.SemiLattice.compress()
 
       new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, delta_interval})
       new_sequence_number = state.sequence_number + 1
@@ -198,11 +193,11 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_operation(state, {module, function, args}) do
-    delta = apply(module, function, [state.crdt_state, state.node_id] ++ args)
+    delta = apply(module, function, args ++ [state.node_id, state.crdt_state])
 
     new_crdt_state =
-      DeltaCrdt.JoinSemilattice.join(state.crdt_state, delta)
-      |> DeltaCrdt.JoinSemilattice.compress()
+      DeltaCrdt.SemiLattice.join(state.crdt_state, delta)
+      |> DeltaCrdt.SemiLattice.compress()
 
     new_deltas = Map.put(state.deltas, state.sequence_number, {self(), delta})
 
