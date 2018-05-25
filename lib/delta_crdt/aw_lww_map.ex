@@ -1,6 +1,10 @@
 defmodule DeltaCrdt.AWLWWMap do
   alias DeltaCrdt.{CausalDotMap, AWSet, ORMap}
 
+  def start_link(notify_pid \\ nil, opts \\ []) do
+    DeltaCrdt.CausalCrdt.start_link(new(), notify_pid, opts)
+  end
+
   def new(), do: %CausalDotMap{}
 
   def add(key, val, i, map) do
