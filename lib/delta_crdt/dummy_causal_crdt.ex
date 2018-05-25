@@ -6,3 +6,7 @@ defmodule DeltaCrdt.DummyCausalCrdt do
 
   def new(), do: %__MODULE__{}
 end
+
+defimpl DeltaCrdt.DotStore, for: DeltaCrdt.DummyCausalCrdt do
+  def dots(_), do: []
+end

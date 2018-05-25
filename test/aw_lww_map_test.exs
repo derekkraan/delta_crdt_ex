@@ -1,6 +1,7 @@
 defmodule AWLWWMapTest do
   alias DeltaCrdt.{AWLWWMap, SemiLattice}
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   describe ".add/4" do
     test "can add an element" do
@@ -20,6 +21,40 @@ defmodule AWLWWMapTest do
         |> AWLWWMap.read()
 
       assert %{one: 1, two: 4, three: 9} = crdt_map
+    end
+
+    property "arbitrary add and remove sequence results in correct map" do
+      operation =
+        ExUnitProperties.gen all op <- StreamData.member_of([:add, :remove]),
+                                 key <- term(),
+                                 value <- term() do
+          {op, key, value}
+        end
+
+      check all operations <- list_of(operation) do
+        actual_result =
+          operations
+          |> Enum.reduce(AWLWWMap.new(), fn
+            {:add, key, val}, crdt ->
+              SemiLattice.join(crdt, AWLWWMap.add(key, val, 1, crdt))
+
+            {:remove, key, val}, crdt ->
+              SemiLattice.join(crdt, AWLWWMap.remove(key, 1, crdt))
+          end)
+          |> AWLWWMap.read()
+
+        correct_result =
+          operations
+          |> Enum.reduce(%{}, fn
+            {:add, key, value}, map ->
+              Map.put(map, key, value)
+
+            {:remove, key, value}, map ->
+              Map.delete(map, key)
+          end)
+
+        assert actual_result == correct_result
+      end
     end
   end
 
