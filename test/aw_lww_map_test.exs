@@ -3,91 +3,91 @@ defmodule AWLWWMapTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  setup do
+    operation_gen =
+      ExUnitProperties.gen all op <- StreamData.member_of([:add, :remove]),
+                               node_id <- term(),
+                               key <- term(),
+                               value <- term() do
+        {op, key, value, node_id}
+      end
+
+    [operation_gen: operation_gen]
+  end
+
   describe ".add/4" do
-    test "can add an element" do
-      map = AWLWWMap.new()
-
-      assert %{one: 1} = SemiLattice.join(map, AWLWWMap.add(:one, 1, 1, map)) |> AWLWWMap.read()
-    end
-
-    test "can add a few elements" do
-      map = AWLWWMap.new()
-
-      crdt_map =
-        [{:one, 1}, {:two, 4}, {:three, 9}]
-        |> Enum.reduce(map, fn {key, val}, map ->
-          SemiLattice.join(map, AWLWWMap.add(key, val, 1, map))
-        end)
-        |> AWLWWMap.read()
-
-      assert %{one: 1, two: 4, three: 9} = crdt_map
-    end
-
-    property "arbitrary add and remove sequence results in correct map" do
-      operation =
-        ExUnitProperties.gen all op <- StreamData.member_of([:add, :remove]),
-                                 key <- term(),
-                                 value <- term() do
-          {op, key, value}
-        end
-
-      check all operations <- list_of(operation) do
-        actual_result =
-          operations
-          |> Enum.reduce(AWLWWMap.new(), fn
-            {:add, key, val}, crdt ->
-              SemiLattice.join(crdt, AWLWWMap.add(key, val, 1, crdt))
-
-            {:remove, key, val}, crdt ->
-              SemiLattice.join(crdt, AWLWWMap.remove(key, 1, crdt))
-          end)
-          |> AWLWWMap.read()
-
-        correct_result =
-          operations
-          |> Enum.reduce(%{}, fn
-            {:add, key, value}, map ->
-              Map.put(map, key, value)
-
-            {:remove, key, value}, map ->
-              Map.delete(map, key)
-          end)
-
-        assert actual_result == correct_result
+    property "can add an element" do
+      ExUnitProperties.gen all key <- term(),
+                               val <- term(),
+                               node_id <- term() do
+        assert %{key => val} ==
+                 SemiLattice.join(AWLWWMap.new(), AWLWWMap.add(key, val, node_id, AWLWWMap.new()))
+                 |> AWLWWMap.read()
       end
     end
   end
 
-  describe ".remove/3" do
-    test "can remove an element" do
-      map = AWLWWMap.new()
+  property "arbitrary add and remove sequence results in correct map", context do
+    check all operations <- list_of(context.operation_gen) do
+      actual_result =
+        operations
+        |> Enum.reduce(AWLWWMap.new(), fn
+          {:add, key, val, node_id}, map ->
+            SemiLattice.join(map, AWLWWMap.add(key, val, node_id, map))
 
-      crdt_map =
-        [{:one, 1}, {:two, 4}, {:three, 9}]
-        |> Enum.reduce(map, fn {key, val}, map ->
-          SemiLattice.join(map, AWLWWMap.add(key, val, 1, map))
+          {:remove, key, val, node_id}, map ->
+            SemiLattice.join(map, AWLWWMap.remove(key, node_id, map))
+        end)
+        |> AWLWWMap.read()
+
+      correct_result =
+        operations
+        |> Enum.reduce(%{}, fn
+          {:add, key, value, node_id}, map ->
+            Map.put(map, key, value)
+
+          {:remove, key, value, node_id}, map ->
+            Map.delete(map, key)
         end)
 
-      with_removed_element = SemiLattice.join(crdt_map, AWLWWMap.remove(:two, 1, crdt_map))
+      assert actual_result == correct_result
+    end
+  end
 
-      assert %{one: 1, three: 9} = AWLWWMap.read(with_removed_element)
-      assert 2 = Enum.count(AWLWWMap.read(with_removed_element))
+  describe ".remove/3" do
+    property "can remove an element" do
+      ExUnitProperties.gen all key <- term(),
+                               val <- term(),
+                               node_id <- term() do
+        crdt = AWLWWMap.new()
+        crdt = SemiLattice.join(crdt, AWLWWMap.add(key, val, node_id, crdt))
+        crdt = SemiLattice.join(crdt, AWLWWMap.remove(key, node_id, crdt))
+        assert %{} == crdt
+      end
     end
   end
 
   describe ".clear/2" do
-    test "removes all elements from the map" do
-      map = AWLWWMap.new()
+    property "removes all elements from the map", context do
+      ExUnitProperties.gen all ops <- list_of(context.operation_gen),
+                               node_id <- term() do
+        populated_map =
+          Enum.reduce(ops, AWLWWMap.new(), fn
+            {:add, key, val, node_id}, map ->
+              AWLWWMap.add(key, val, node_id, map)
+              |> SemiLattice.join(map)
 
-      crdt_map =
-        [{:one, 1}, {:two, 4}, {:three, 9}]
-        |> Enum.reduce(map, fn {key, val}, map ->
-          SemiLattice.join(map, AWLWWMap.add(key, val, 1, map))
-        end)
+            {:remove, key, _val, node_id}, map ->
+              AWLWWMap.remove(key, node_id, map)
+              |> SemiLattice.join(map)
+          end)
 
-      cleared = SemiLattice.join(crdt_map, AWLWWMap.clear(1, crdt_map))
+        cleared_map =
+          AWLWWMap.clear(node_id, populated_map)
+          |> SemiLattice.join(populated_map)
 
-      assert Enum.empty?(AWLWWMap.read(cleared))
+        assert %{} == cleared_map
+      end
     end
   end
 end
