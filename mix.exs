@@ -21,17 +21,20 @@ defmodule DeltaCrdt.MixProject do
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
-    [{:benchee, ">= 0.0.0", only: :dev}, {:exprof, "~> 0.2.0", only: :dev}]
+    [
+      {:benchee, ">= 0.0.0", only: :dev},
+      {:exprof, "~> 0.2.0", only: :dev},
+      {:ex_doc, ">= 0.0.0", only: :dev}
+    ]
   end
 
   defp package do
     [
-      name: "Delta CRDT",
+      name: "delta_crdt",
+      description: "Implementations of δ-CRDTs",
       licenses: ["MIT"],
       maintainers: ["Derek Kraan"],
-      links: [
-        github: "https://github.com/derekkraan/delta_crdt_ex"
-      ]
+      links: %{GitHub: "https://github.com/derekkraan/delta_crdt_ex"}
     ]
   end
 end
