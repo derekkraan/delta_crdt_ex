@@ -17,9 +17,9 @@ defmodule AWLWWMapTest do
 
   describe ".add/4" do
     property "can add an element" do
-      ExUnitProperties.gen all key <- term(),
-                               val <- term(),
-                               node_id <- term() do
+      check all key <- term(),
+                val <- term(),
+                node_id <- term() do
         assert %{key => val} ==
                  SemiLattice.join(AWLWWMap.new(), AWLWWMap.add(key, val, node_id, AWLWWMap.new()))
                  |> AWLWWMap.read()
@@ -56,12 +56,16 @@ defmodule AWLWWMapTest do
 
   describe ".remove/3" do
     property "can remove an element" do
-      ExUnitProperties.gen all key <- term(),
-                               val <- term(),
-                               node_id <- term() do
+      check all key <- term(),
+                val <- term(),
+                node_id <- term() do
         crdt = AWLWWMap.new()
         crdt = SemiLattice.join(crdt, AWLWWMap.add(key, val, node_id, crdt))
-        crdt = SemiLattice.join(crdt, AWLWWMap.remove(key, node_id, crdt))
+
+        crdt =
+          SemiLattice.join(crdt, AWLWWMap.remove(key, node_id, crdt))
+          |> AWLWWMap.read()
+
         assert %{} == crdt
       end
     end
@@ -69,8 +73,8 @@ defmodule AWLWWMapTest do
 
   describe ".clear/2" do
     property "removes all elements from the map", context do
-      ExUnitProperties.gen all ops <- list_of(context.operation_gen),
-                               node_id <- term() do
+      check all ops <- list_of(context.operation_gen),
+                node_id <- term() do
         populated_map =
           Enum.reduce(ops, AWLWWMap.new(), fn
             {:add, key, val, node_id}, map ->
@@ -85,6 +89,7 @@ defmodule AWLWWMapTest do
         cleared_map =
           AWLWWMap.clear(node_id, populated_map)
           |> SemiLattice.join(populated_map)
+          |> AWLWWMap.read()
 
         assert %{} == cleared_map
       end
