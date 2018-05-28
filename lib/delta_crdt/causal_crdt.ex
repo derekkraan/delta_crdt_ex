@@ -1,7 +1,7 @@
 defmodule DeltaCrdt.CausalCrdt do
   use GenServer
 
-  @ship_debounce 20
+  @ship_debounce 5
   @ship_interval 5000
   @ship_after_x_deltas 100
   @gc_interval 10_000
