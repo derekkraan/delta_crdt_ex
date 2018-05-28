@@ -1,8 +1,9 @@
 defmodule DeltaCrdt.CausalCrdt do
   use GenServer
 
-  @ship_debounce 200
+  @ship_debounce 100
   @ship_interval 5000
+  @ship_after_x_deltas 100
   @gc_interval 10_000
 
   @type delta :: {k :: integer(), delta :: any()}
@@ -25,6 +26,7 @@ defmodule DeltaCrdt.CausalCrdt do
               notify_pid: nil,
               neighbours: MapSet.new(),
               crdt_state: nil,
+              last_ship_sequence_number: 0,
               sequence_number: 0,
               deltas: %{},
               ack_map: %{}
@@ -49,9 +51,9 @@ defmodule DeltaCrdt.CausalCrdt do
       send(neighbour, {:delta, {self(), state.crdt_state}, state.sequence_number})
     else
       state.deltas
-      |> Enum.reject(fn
-        {_i, {^neighbour, _delta}} -> true
-        _ -> false
+      |> Enum.filter(fn
+        {_i, {^neighbour, _delta}} -> false
+        _ -> true
       end)
       |> Enum.filter(fn {i, _delta} -> remote_acked <= i && i < state.sequence_number end)
       |> case do
@@ -60,8 +62,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
         deltas ->
           delta_interval =
-            deltas
-            |> Enum.map(fn {_i, {_from, delta}} -> delta end)
+            Enum.map(deltas, fn {_i, {_from, delta}} -> delta end)
             |> Enum.reduce(fn delta, delta_interval ->
               DeltaCrdt.SemiLattice.join(delta_interval, delta)
             end)
@@ -169,10 +170,17 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_info({:ship, s}, %{sequence_number: s, neighbours: neighbours} = state) do
-    Enum.each(neighbours, fn n -> ship_state_to_neighbour(n, state) end)
+  def handle_info({:ship, s}, %{last_ship_sequence_number: old_s} = state)
+      when s > old_s + @ship_after_x_deltas do
+    Enum.each(state.neighbours, fn n -> ship_state_to_neighbour(n, state) end)
 
-    {:noreply, state}
+    {:noreply, %{state | last_ship_sequence_number: s}}
+  end
+
+  def handle_info({:ship, s}, %{sequence_number: s} = state) do
+    Enum.each(state.neighbours, fn n -> ship_state_to_neighbour(n, state) end)
+
+    {:noreply, %{state | last_ship_sequence_number: s}}
   end
 
   def handle_info({:ship, _s}, state), do: {:noreply, state}
