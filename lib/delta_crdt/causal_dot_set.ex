@@ -40,4 +40,6 @@ defimpl DeltaCrdt.SemiLattice, for: DeltaCrdt.CausalDotSet do
   def bottom?(%{state: dots}) do
     Enum.empty?(dots)
   end
+
+  def compress(s), do: s
 end

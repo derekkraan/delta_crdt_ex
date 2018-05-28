@@ -35,7 +35,7 @@ defmodule AWLWWMapTest do
           {:add, key, val, node_id}, map ->
             SemiLattice.join(map, AWLWWMap.add(key, val, node_id, map))
 
-          {:remove, key, val, node_id}, map ->
+          {:remove, key, _val, node_id}, map ->
             SemiLattice.join(map, AWLWWMap.remove(key, node_id, map))
         end)
         |> AWLWWMap.read()
@@ -43,10 +43,10 @@ defmodule AWLWWMapTest do
       correct_result =
         operations
         |> Enum.reduce(%{}, fn
-          {:add, key, value, node_id}, map ->
+          {:add, key, value, _node_id}, map ->
             Map.put(map, key, value)
 
-          {:remove, key, value, node_id}, map ->
+          {:remove, key, _value, _node_id}, map ->
             Map.delete(map, key)
         end)
 

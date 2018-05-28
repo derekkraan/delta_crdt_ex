@@ -11,7 +11,7 @@ defmodule DeltaCrdt.AWSet do
     }
   end
 
-  def remove(element, i, %{causal_context: c, state: map}) do
+  def remove(element, _i, %{causal_context: _c, state: map}) do
     causal_context =
       Map.get(map, element, DeltaCrdt.CausalContext.new()) |> DeltaCrdt.CausalContext.new()
 
@@ -22,7 +22,7 @@ defmodule DeltaCrdt.AWSet do
     }
   end
 
-  def clear(i, map) do
+  def clear(_i, map) do
     causal_context = DeltaCrdt.DotStore.dots(map) |> DeltaCrdt.CausalContext.new()
 
     %DeltaCrdt.CausalDotMap{

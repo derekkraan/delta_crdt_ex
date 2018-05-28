@@ -1,7 +1,7 @@
 defmodule DeltaCrdt.ORMap do
   alias DeltaCrdt.{CausalDotMap, DummyCausalCrdt, CausalContext, DotStore}
 
-  def apply({m, f, a} = op, key, i, %CausalDotMap{} = map) do
+  def apply({m, f, a}, key, i, %CausalDotMap{} = map) do
     val = Map.get(map.state, key, DummyCausalCrdt.new())
     delta_op = apply(m, f, a ++ [i, %{val | causal_context: map.causal_context}])
 
@@ -12,7 +12,7 @@ defmodule DeltaCrdt.ORMap do
     }
   end
 
-  def remove(key, i, %CausalDotMap{} = map) do
+  def remove(key, _i, %CausalDotMap{} = map) do
     val = Map.get(map.state, key, DummyCausalCrdt.new())
 
     %CausalDotMap{
@@ -22,7 +22,7 @@ defmodule DeltaCrdt.ORMap do
     }
   end
 
-  def clear(i, %CausalDotMap{} = map) do
+  def clear(_i, %CausalDotMap{} = map) do
     %CausalDotMap{
       state: :bottom,
       causal_context: DotStore.dots(map) |> CausalContext.new(),
