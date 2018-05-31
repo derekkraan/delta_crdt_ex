@@ -134,6 +134,14 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Enum.find(false, fn {n, v} -> Map.get(last_known_states, n, 0) + 1 < v end)
 
     if reject do
+      require Logger
+
+      Logger.debug(
+        "not applying delta interval from #{inspect(neighbour)} because #{
+          inspect(last_known_states)
+        } is incompatible with #{inspect(first_new_states)}"
+      )
+
       send(neighbour, {:ack, self(), n})
       {:noreply, state}
     else
