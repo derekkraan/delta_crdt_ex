@@ -131,7 +131,12 @@ defmodule DeltaCrdt.CausalCrdt do
 
     reject =
       first_new_states
-      |> Enum.find(false, fn {n, v} -> Map.get(last_known_states, n, 0) + 1 < v end)
+      |> Enum.find(false, fn {n, v} ->
+        case Map.get(last_known_states, n) do
+          nil -> false
+          x -> x + 1 < v
+        end
+      end)
 
     if reject do
       require Logger
