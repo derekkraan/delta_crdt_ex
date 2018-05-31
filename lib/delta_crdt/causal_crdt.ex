@@ -147,7 +147,6 @@ defmodule DeltaCrdt.CausalCrdt do
         } is incompatible with #{inspect(first_new_states)}"
       )
 
-      send(neighbour, {:ack, self(), n})
       {:noreply, state}
     else
       new_crdt_state =
