@@ -13,6 +13,7 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def remove(key, i, map), do: ORMap.remove(key, i, map)
+
   def clear(i, map), do: ORMap.clear(i, map)
 
   def read(%{state: map}) do

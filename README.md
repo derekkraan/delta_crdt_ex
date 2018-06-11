@@ -13,6 +13,33 @@ The following papers have been partially implemented in this library:
 - [`Delta State Replicated Data Types – Almeida et al. 2016`](https://arxiv.org/pdf/1603.01529.pdf)
 - [`Efficient Synchronization of State-based CRDTs – Enes et al. 2018`](https://arxiv.org/pdf/1803.02750.pdf)
 
+## Usage
+
+```elixir
+alias DeltaCrdt.{CausalCrdt, AWLWWMap}
+
+# start 2 GenServers to wrap a CRDT.
+{:ok, crdt} = DeltaCrdt.CausalCrdt.start_link(AWLWWMap.new())
+{:ok, crdt2} = DeltaCrdt.CausalCrdt.start_link(AWLWWMap.new())
+
+# make them aware of each other
+send(crdt, {:add_neighbour, crdt2})
+send(crdt2, {:add_neighbour, crdt})
+
+# do an operation on the CRDT
+GenServer.cast(crdt, {:operation, {AWLWWMap, :add, ["CRDT", "is magic"]}})
+
+# force sending intervals to neighbours
+send(crdt, :ship_interval_or_state_to_all)
+
+# wait a few ms to give it time to replicate
+Process.sleep(10)
+
+# read the CRDT
+GenServer.call(crdt2, {:read, AWLWWMap})
+#=> %{"CRDT" => "is magic"}
+```
+
 ## TODOs
 
 - implement join decomposition to further reduce back-propagation.
