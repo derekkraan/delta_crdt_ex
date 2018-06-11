@@ -15,6 +15,10 @@ The following papers have been partially implemented in this library:
 
 ## Usage
 
+Documentation can be found on [hexdocs.pm](https://hexdocs.pm/delta_crdt).
+
+Here's a short example to illustrate adding an entry to a map:
+
 ```elixir
 alias DeltaCrdt.{CausalCrdt, AWLWWMap}
 
@@ -55,5 +59,3 @@ def deps do
   ]
 end
 ```
-
-Documentation can be found on [hexdocs.pm](https://hexdocs.pm/delta_crdt).
