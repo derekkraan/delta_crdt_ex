@@ -1,6 +1,8 @@
 defmodule DeltaCrdt.CausalCrdt do
   use GenServer
 
+  require Logger
+
   @ship_debounce 5
   @ship_interval 5000
   @ship_after_x_deltas 100
@@ -122,6 +124,10 @@ defmodule DeltaCrdt.CausalCrdt do
         {:delta, {neighbour, %{state: _d_s, causal_context: delta_c} = delta_interval}, n},
         %{crdt_state: %{state: _s, causal_context: c}} = state
       ) do
+    Logger.debug(fn ->
+      "#{inspect(self())} received delta from #{inspect(neighbour)}: #{inspect(delta_interval)}"
+    end)
+
     last_known_states = c.maxima
 
     first_new_states =
@@ -139,8 +145,6 @@ defmodule DeltaCrdt.CausalCrdt do
       end)
 
     if reject do
-      require Logger
-
       Logger.debug(
         "not applying delta interval from #{inspect(neighbour)} because #{
           inspect(last_known_states)
