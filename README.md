@@ -23,8 +23,8 @@ Here's a short example to illustrate adding an entry to a map:
 alias DeltaCrdt.{CausalCrdt, AWLWWMap}
 
 # start 2 GenServers to wrap a CRDT.
-{:ok, crdt} = DeltaCrdt.CausalCrdt.start_link(AWLWWMap.new())
-{:ok, crdt2} = DeltaCrdt.CausalCrdt.start_link(AWLWWMap.new())
+{:ok, crdt} = CausalCrdt.start_link(AWLWWMap.new())
+{:ok, crdt2} = CausalCrdt.start_link(AWLWWMap.new())
 
 # make them aware of each other
 send(crdt, {:add_neighbour, crdt2})
