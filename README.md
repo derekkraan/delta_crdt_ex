@@ -1,4 +1,4 @@
-/ DeltaCrdt
+# DeltaCrdt
 
 DeltaCrdt implements some Delta CRDTs in Elixir.
 
