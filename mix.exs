@@ -4,7 +4,7 @@ defmodule DeltaCrdt.MixProject do
   def project do
     [
       app: :delta_crdt,
-      version: "0.1.2",
+      version: "0.1.3",
       elixir: "~> 1.6",
       start_permanent: Mix.env() == :prod,
       package: package(),
