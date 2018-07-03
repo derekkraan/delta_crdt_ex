@@ -134,10 +134,6 @@ defmodule DeltaCrdt.CausalCrdt do
         {:delta, {neighbour, %{state: _d_s, causal_context: delta_c} = delta_interval}, n},
         %{crdt_state: %{state: _s, causal_context: c}} = state
       ) do
-    Logger.debug(fn ->
-      "#{inspect(self())} received delta from #{inspect(neighbour)}: #{inspect(delta_interval)}"
-    end)
-
     last_known_states = c.maxima
 
     first_new_states =
@@ -155,11 +151,11 @@ defmodule DeltaCrdt.CausalCrdt do
       end)
 
     if reject do
-      Logger.debug(
+      Logger.debug(fn ->
         "not applying delta interval from #{inspect(neighbour)} because #{
           inspect(last_known_states)
         } is incompatible with #{inspect(first_new_states)}"
-      )
+      end)
 
       {:noreply, state}
     else
