@@ -38,12 +38,18 @@ defmodule DeltaCrdt.CausalCrdt do
     DeltaCrdt.Periodic.start_link(:ship_interval_or_state, @ship_interval)
     DeltaCrdt.Periodic.start_link(:garbage_collect_deltas, @gc_interval)
 
+    Process.flag(:trap_exit, true)
+
     {:ok,
      %State{
        node_id: :rand.uniform(1_000_000_000),
        notify_pid: notify_pid,
        crdt_state: crdt_state
      }}
+  end
+
+  def terminate(_reason, state) do
+    ship_interval_or_state_to_all(state)
   end
 
   defp ship_state_to_neighbour(neighbour, state) do
@@ -76,9 +82,13 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_info(:ship_interval_or_state_to_all, state) do
+  defp ship_interval_or_state_to_all(state) do
     state.neighbours
     |> Enum.each(fn n -> ship_state_to_neighbour(n, state) end)
+  end
+
+  def handle_info(:ship_interval_or_state_to_all, state) do
+    ship_interval_or_state_to_all(state)
 
     {:noreply, state}
   end
