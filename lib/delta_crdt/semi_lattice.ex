@@ -3,6 +3,7 @@ defprotocol DeltaCrdt.SemiLattice do
 
   def join(semilattice1, semilattice2)
   def bottom?(semilattice)
+  def minimum_delta(state, delta)
   def compress(semilattice)
 end
 

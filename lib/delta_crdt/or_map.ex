@@ -5,8 +5,16 @@ defmodule DeltaCrdt.ORMap do
     val = Map.get(map.state, key, DummyCausalCrdt.new())
     delta_op = apply(m, f, a ++ [i, %{val | causal_context: map.causal_context}])
 
+    new_state =
+      Map.new(delta_op.state, fn {key, thing} -> {key, Map.put(thing, :causal_context, nil)} end)
+
+    new_delta_op =
+      delta_op
+      |> Map.put(:state, new_state)
+      |> Map.put(:causal_context, nil)
+
     %CausalDotMap{
-      state: %{key => Map.put(delta_op, :causal_context, nil)},
+      state: %{key => new_delta_op},
       causal_context: delta_op.causal_context,
       keys: MapSet.new([key])
     }

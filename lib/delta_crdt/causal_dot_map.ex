@@ -22,6 +22,14 @@ defimpl DeltaCrdt.SemiLattice, for: DeltaCrdt.CausalDotMap do
 
   defp convert_bottom(map), do: map
 
+  def minimum_delta(state, delta) do
+    if compress(join(state, delta)) == state do
+      :bottom
+    else
+      delta
+    end
+  end
+
   def join(map1, map2) do
     map1 = convert_bottom(map1)
     map2 = convert_bottom(map2)

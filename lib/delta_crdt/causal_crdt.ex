@@ -54,7 +54,7 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def read(server, timeout \\ 5000) do
-    {crdt_module, state} = GenServer.call(server, :read)
+    {crdt_module, state} = GenServer.call(server, :read, timeout)
     apply(crdt_module, :read, [state])
   end
 
@@ -142,21 +142,6 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, state}
   end
 
-  def handle_call(:garbage_collect_deltas, _from, state) do
-    if Enum.empty?(state.neighbours) do
-      {:noreply, state}
-    else
-      l =
-        state.neighbours
-        |> Enum.filter(fn neighbour -> Map.has_key?(state.ack_map, neighbour) end)
-        |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
-        |> Enum.min(fn -> 0 end)
-
-      new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Map.new()
-      {:reply, :ok, %{state | deltas: new_deltas}}
-    end
-  end
-
   def handle_info({:add_neighbours, pids}, state) do
     new_neighbours = pids |> MapSet.new() |> MapSet.union(state.neighbours)
 
@@ -197,19 +182,26 @@ defmodule DeltaCrdt.CausalCrdt do
 
       {:noreply, state}
     else
-      new_crdt_state =
-        DeltaCrdt.SemiLattice.join(state.crdt_state, delta_interval)
-        |> DeltaCrdt.SemiLattice.compress()
+      new_state =
+        case DeltaCrdt.SemiLattice.minimum_delta(state.crdt_state, delta_interval) do
+          :bottom ->
+            state
 
-      new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, delta_interval})
-      new_sequence_number = state.sequence_number + 1
+          minimum_delta ->
+            new_crdt_state =
+              DeltaCrdt.SemiLattice.join(state.crdt_state, minimum_delta)
+              |> DeltaCrdt.SemiLattice.compress()
 
-      new_state = %{
-        state
-        | crdt_state: new_crdt_state,
-          deltas: new_deltas,
-          sequence_number: new_sequence_number
-      }
+            new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, minimum_delta})
+            new_sequence_number = state.sequence_number + 1
+
+            %{
+              state
+              | crdt_state: new_crdt_state,
+                deltas: new_deltas,
+                sequence_number: new_sequence_number
+            }
+        end
 
       send(neighbour, {:ack, self(), n})
       {:noreply, new_state}
@@ -223,15 +215,6 @@ defmodule DeltaCrdt.CausalCrdt do
       new_ack_map = Map.put(state.ack_map, neighbour, n)
       {:noreply, %{state | ack_map: new_ack_map}}
     end
-  end
-
-  def handle_call(:try_ship, _f, %{shipped_sequence_number: same, sequence_number: same} = state) do
-    {:reply, :ok, state}
-  end
-
-  def handle_call(:try_ship, _f, state) do
-    Process.send_after(self(), {:ship, state.sequence_number}, state.ship_debounce)
-    {:reply, :ok, state}
   end
 
   def handle_info({:ship, s}, %{shipped_sequence_number: old_s} = state)
@@ -251,8 +234,32 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, %{state | shipped_sequence_number: s}}
   end
 
-  def handle_info({:ship, s}, state) do
+  def handle_info({:ship, _s}, state) do
     {:noreply, state}
+  end
+
+  def handle_call(:garbage_collect_deltas, _from, state) do
+    if Enum.empty?(state.neighbours) do
+      {:noreply, state}
+    else
+      l =
+        state.neighbours
+        |> Enum.filter(fn neighbour -> Map.has_key?(state.ack_map, neighbour) end)
+        |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
+        |> Enum.min(fn -> 0 end)
+
+      new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Map.new()
+      {:reply, :ok, %{state | deltas: new_deltas}}
+    end
+  end
+
+  def handle_call(:try_ship, _f, %{shipped_sequence_number: same, sequence_number: same} = state) do
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:try_ship, _f, state) do
+    Process.send_after(self(), {:ship, state.sequence_number}, state.ship_debounce)
+    {:reply, :ok, state}
   end
 
   def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),
@@ -274,17 +281,23 @@ defmodule DeltaCrdt.CausalCrdt do
   def handle_operation({function, args}, state) do
     delta = apply(state.crdt_module, function, args ++ [state.node_id, state.crdt_state])
 
-    new_crdt_state =
-      DeltaCrdt.SemiLattice.join(state.crdt_state, delta)
-      |> DeltaCrdt.SemiLattice.compress()
+    case DeltaCrdt.SemiLattice.minimum_delta(state.crdt_state, delta) do
+      :bottom ->
+        state
 
-    new_deltas = Map.put(state.deltas, state.sequence_number, {self(), delta})
+      minimum_delta ->
+        new_crdt_state =
+          DeltaCrdt.SemiLattice.join(state.crdt_state, minimum_delta)
+          |> DeltaCrdt.SemiLattice.compress()
 
-    new_sequence_number = state.sequence_number + 1
+        new_deltas = Map.put(state.deltas, state.sequence_number, {self(), minimum_delta})
 
-    Map.put(state, :deltas, new_deltas)
-    |> Map.put(:crdt_state, new_crdt_state)
-    |> Map.put(:sequence_number, new_sequence_number)
+        new_sequence_number = state.sequence_number + 1
+
+        Map.put(state, :deltas, new_deltas)
+        |> Map.put(:crdt_state, new_crdt_state)
+        |> Map.put(:sequence_number, new_sequence_number)
+    end
   end
 end
 

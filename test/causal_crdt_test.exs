@@ -27,7 +27,7 @@ defmodule CausalCrdtTest do
     send(context.c1, :ship_interval_or_state_to_all)
     send(context.c2, :ship_interval_or_state_to_all)
     send(context.c3, :ship_interval_or_state_to_all)
-    Process.sleep(50)
+    Process.sleep(100)
     assert %{"Derek" => "three_wins"} == CausalCrdt.read(context.c1)
   end
 
