@@ -23,24 +23,24 @@ Here's a short example to illustrate adding an entry to a map:
 alias DeltaCrdt.{CausalCrdt, AWLWWMap}
 
 # start 2 GenServers to wrap a CRDT.
-{:ok, crdt} = CausalCrdt.start_link(AWLWWMap.new())
-{:ok, crdt2} = CausalCrdt.start_link(AWLWWMap.new())
+{:ok, crdt} = CausalCrdt.start_link(AWLWWMap)
+{:ok, crdt2} = CausalCrdt.start_link(AWLWWMap)
 
 # make them aware of each other
 send(crdt, {:add_neighbour, crdt2})
 send(crdt2, {:add_neighbour, crdt})
 
 # do an operation on the CRDT
-GenServer.cast(crdt, {:operation, {AWLWWMap, :add, ["CRDT", "is magic"]}})
+GenServer.cast(crdt, {:operation, {:add, ["CRDT", "is magic"]}})
 
 # force sending intervals to neighbours
 send(crdt, :ship_interval_or_state_to_all)
 
 # wait a few ms to give it time to replicate
-Process.sleep(10)
+Process.sleep(50)
 
 # read the CRDT
-GenServer.call(crdt2, {:read, AWLWWMap})
+CausalCrdt.read(crdt2)
 #=> %{"CRDT" => "is magic"}
 ```
 

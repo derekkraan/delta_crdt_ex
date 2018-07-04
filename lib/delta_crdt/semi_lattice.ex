@@ -15,10 +15,6 @@ defimpl DeltaCrdt.SemiLattice, for: Any do
     DeltaCrdt.SemiLattice.join(Map.merge(struct.new(), s1), s2)
   end
 
-  def join(s1, s2) do
-    IO.inspect({__MODULE__, :join, [s1, s2]})
-  end
-
   def bottom?(%{state: :bottom}), do: true
   def bottom?(_), do: false
 

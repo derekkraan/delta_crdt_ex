@@ -3,9 +3,10 @@ defmodule DeltaCrdt.CausalCrdt do
 
   require Logger
 
-  @ship_debounce 5
-  @ship_interval 5000
-  @ship_after_x_deltas 100
+  @default_ship_interval 50
+  @default_ship_debounce 50
+
+  @ship_after_x_deltas 1000
   @gc_interval 10_000
 
   @type delta :: {k :: integer(), delta :: any()}
@@ -16,40 +17,87 @@ defmodule DeltaCrdt.CausalCrdt do
   which is an anti-entropy algorithm for δ-CRDTs. You can find the original paper here: https://arxiv.org/pdf/1603.01529.pdf
   """
 
+  def child_spec(opts \\ []) do
+    name = Keyword.get(opts, :name, nil)
+    crdt_module = Keyword.get(opts, :crdt, nil)
+    notify = Keyword.get(opts, :notify, nil)
+    ship_interval = Keyword.get(opts, :ship_interval, @default_ship_interval)
+    ship_debounce = Keyword.get(opts, :ship_debounce, @default_ship_debounce)
+
+    if is_nil(name) do
+      raise "must specify :name in options, got: #{inspect(opts)}"
+    end
+
+    if is_nil(crdt_module) do
+      raise "must specify :crdt in options, got: #{inspect(opts)}"
+    end
+
+    %{
+      id: name,
+      start:
+        {__MODULE__, :start_link,
+         [crdt_module, notify, ship_interval, ship_debounce, [name: name]]}
+    }
+  end
+
   @doc """
   Start a DeltaCrdt.
   """
-  def start_link(crdt_state, notify_pid \\ nil, opts \\ []) do
-    GenServer.start_link(__MODULE__, {crdt_state, notify_pid}, opts)
+  def start_link(
+        crdt_module,
+        notify \\ nil,
+        ship_interval \\ @default_ship_interval,
+        ship_debounce \\ @default_ship_debounce,
+        opts \\ []
+      ) do
+    GenServer.start_link(__MODULE__, {crdt_module, notify, ship_interval, ship_debounce}, opts)
+  end
+
+  def read(server, timeout \\ 5000) do
+    {crdt_module, state} = GenServer.call(server, :read)
+    apply(crdt_module, :read, [state])
   end
 
   defmodule State do
     defstruct node_id: nil,
-              notify_pid: nil,
+              notify: nil,
               neighbours: MapSet.new(),
+              crdt_module: nil,
               crdt_state: nil,
-              last_ship_sequence_number: 0,
+              shipped_sequence_number: 0,
               sequence_number: 0,
+              ship_debounce: 0,
               deltas: %{},
               ack_map: %{}
   end
 
-  def init({crdt_state, notify_pid}) do
-    DeltaCrdt.Periodic.start_link(:ship_interval_or_state, @ship_interval)
+  def init({crdt_module, notify, ship_interval, ship_debounce}) do
     DeltaCrdt.Periodic.start_link(:garbage_collect_deltas, @gc_interval)
+    DeltaCrdt.Periodic.start_link(:try_ship, ship_interval)
 
     Process.flag(:trap_exit, true)
 
     {:ok,
      %State{
        node_id: :rand.uniform(1_000_000_000),
-       notify_pid: notify_pid,
-       crdt_state: crdt_state
+       notify: notify,
+       crdt_module: crdt_module,
+       ship_debounce: ship_debounce,
+       crdt_state: crdt_module.new()
      }}
   end
 
   def terminate(_reason, state) do
     ship_interval_or_state_to_all(state)
+  end
+
+  defp send_notification(%{notify: nil}), do: nil
+
+  defp send_notification(%{notify: {pid, msg}}) do
+    case Process.whereis(pid) do
+      nil -> nil
+      loc -> send(loc, msg)
+    end
   end
 
   defp ship_state_to_neighbour(neighbour, state) do
@@ -83,9 +131,10 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp ship_interval_or_state_to_all(state) do
-    state.neighbours
-    |> Enum.each(fn n -> ship_state_to_neighbour(n, state) end)
+    Enum.each(state.neighbours, fn n -> ship_state_to_neighbour(n, state) end)
   end
+
+  def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
 
   def handle_info(:ship_interval_or_state_to_all, state) do
     ship_interval_or_state_to_all(state)
@@ -93,18 +142,7 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, state}
   end
 
-  def handle_info(:ship_interval_or_state, %{neighbours: neighbours} = state) do
-    if Enum.empty?(neighbours) do
-      {:noreply, state}
-    else
-      neighbour = neighbours |> Enum.random()
-      ship_state_to_neighbour(neighbour, state)
-    end
-
-    {:noreply, state}
-  end
-
-  def handle_info(:garbage_collect_deltas, state) do
+  def handle_call(:garbage_collect_deltas, _from, state) do
     if Enum.empty?(state.neighbours) do
       {:noreply, state}
     else
@@ -115,7 +153,7 @@ defmodule DeltaCrdt.CausalCrdt do
         |> Enum.min(fn -> 0 end)
 
       new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Map.new()
-      {:noreply, %{state | deltas: new_deltas}}
+      {:reply, :ok, %{state | deltas: new_deltas}}
     end
   end
 
@@ -166,11 +204,6 @@ defmodule DeltaCrdt.CausalCrdt do
       new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, delta_interval})
       new_sequence_number = state.sequence_number + 1
 
-      case state.notify_pid do
-        {pid, msg} -> send(pid, msg)
-        _ -> nil
-      end
-
       new_state = %{
         state
         | crdt_state: new_crdt_state,
@@ -192,20 +225,38 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_info({:ship, s}, %{last_ship_sequence_number: old_s} = state)
-      when s > old_s + @ship_after_x_deltas do
-    Enum.each(state.neighbours, fn n -> ship_state_to_neighbour(n, state) end)
+  def handle_call(:try_ship, _f, %{shipped_sequence_number: same, sequence_number: same} = state) do
+    {:reply, :ok, state}
+  end
 
-    {:noreply, %{state | last_ship_sequence_number: s}}
+  def handle_call(:try_ship, _f, state) do
+    Process.send_after(self(), {:ship, state.sequence_number}, state.ship_debounce)
+    {:reply, :ok, state}
+  end
+
+  def handle_info({:ship, s}, %{shipped_sequence_number: old_s} = state)
+      when s > old_s + @ship_after_x_deltas do
+    ship_interval_or_state_to_all(state)
+
+    send_notification(state)
+
+    {:noreply, %{state | shipped_sequence_number: s}}
   end
 
   def handle_info({:ship, s}, %{sequence_number: s} = state) do
-    Enum.each(state.neighbours, fn n -> ship_state_to_neighbour(n, state) end)
+    ship_interval_or_state_to_all(state)
 
-    {:noreply, %{state | last_ship_sequence_number: s}}
+    send_notification(state)
+
+    {:noreply, %{state | shipped_sequence_number: s}}
   end
 
-  def handle_info({:ship, _s}, state), do: {:noreply, state}
+  def handle_info({:ship, s}, state) do
+    {:noreply, state}
+  end
+
+  def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),
+    do: {:reply, {crdt_module, crdt_state}, state}
 
   def handle_call({:read, module}, _from, state) do
     ret = apply(module, :read, [state.crdt_state])
@@ -213,17 +264,15 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_call({:operation, operation}, _from, state) do
-    new_state = handle_operation(state, operation)
-    {:reply, :ok, new_state}
+    {:reply, :ok, handle_operation(operation, state)}
   end
 
   def handle_cast({:operation, operation}, state) do
-    new_state = handle_operation(state, operation)
-    {:noreply, new_state}
+    {:noreply, handle_operation(operation, state)}
   end
 
-  def handle_operation(state, {module, function, args}) do
-    delta = apply(module, function, args ++ [state.node_id, state.crdt_state])
+  def handle_operation({function, args}, state) do
+    delta = apply(state.crdt_module, function, args ++ [state.node_id, state.crdt_state])
 
     new_crdt_state =
       DeltaCrdt.SemiLattice.join(state.crdt_state, delta)
@@ -233,20 +282,9 @@ defmodule DeltaCrdt.CausalCrdt do
 
     new_sequence_number = state.sequence_number + 1
 
-    new_state =
-      state
-      |> Map.put(:deltas, new_deltas)
-      |> Map.put(:crdt_state, new_crdt_state)
-      |> Map.put(:sequence_number, new_sequence_number)
-
-    case state.notify_pid do
-      {pid, msg} -> send(pid, msg)
-      _ -> nil
-    end
-
-    Process.send_after(self(), {:ship, new_sequence_number}, @ship_debounce)
-
-    new_state
+    Map.put(state, :deltas, new_deltas)
+    |> Map.put(:crdt_state, new_crdt_state)
+    |> Map.put(:sequence_number, new_sequence_number)
   end
 end
 
@@ -264,7 +302,7 @@ defmodule DeltaCrdt.Periodic do
   end
 
   def handle_info(:tick, {parent, message, interval}) do
-    send(parent, message)
+    GenServer.call(parent, message, :infinity)
     Process.send_after(self(), :tick, interval)
     {:noreply, {parent, message, interval}}
   end
