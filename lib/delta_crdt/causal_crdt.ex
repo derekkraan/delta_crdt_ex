@@ -184,6 +184,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
       {:noreply, state}
     else
+      send(neighbour, {:ack, self(), n})
+
       new_state =
         case DeltaCrdt.SemiLattice.minimum_delta(state.crdt_state, delta_interval) do
           :bottom ->
@@ -205,7 +207,6 @@ defmodule DeltaCrdt.CausalCrdt do
             }
         end
 
-      send(neighbour, {:ack, self(), n})
       {:noreply, new_state}
     end
   end
