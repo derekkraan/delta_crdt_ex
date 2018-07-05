@@ -20,6 +20,7 @@ defmodule DeltaCrdt.CausalCrdt do
   def child_spec(opts \\ []) do
     name = Keyword.get(opts, :name, nil)
     crdt_module = Keyword.get(opts, :crdt, nil)
+    shutdown = Keyword.get(opts, :shutdown, 5000)
 
     if is_nil(name) do
       raise "must specify :name in options, got: #{inspect(opts)}"
@@ -31,7 +32,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
     %{
       id: name,
-      start: {__MODULE__, :start_link, [crdt_module, Keyword.drop(opts, [:name]), [name: name]]}
+      start: {__MODULE__, :start_link, [crdt_module, Keyword.drop(opts, [:name]), [name: name]]},
+      shutdown: shutdown
     }
   end
 
