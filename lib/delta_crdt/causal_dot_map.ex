@@ -23,7 +23,13 @@ defimpl DeltaCrdt.SemiLattice, for: DeltaCrdt.CausalDotMap do
   defp convert_bottom(map), do: map
 
   def minimum_delta(state, delta) do
-    if compress(join(state, delta)) == state do
+    new_state =
+      join(state, delta)
+      |> Map.delete(:keys)
+
+    old_state = Map.delete(state, :keys)
+
+    if new_state == old_state do
       :bottom
     else
       delta
@@ -74,9 +80,23 @@ defimpl DeltaCrdt.SemiLattice, for: DeltaCrdt.CausalDotMap do
   def compress(map) do
     %{
       map
-      | causal_context: DeltaCrdt.CausalContext.compress(map.causal_context),
-        keys: MapSet.new(Map.keys(map.state))
+      | causal_context: map.causal_context,
+        keys: merge_keys_into_mapset(map.keys, map.state)
     }
+  end
+
+  defp merge_keys_into_mapset(mapset, keys) do
+    # MapSet.new(Map.keys(map.state))
+    keys_mapset = %MapSet{MapSet.new() | map: keys}
+
+    mapset =
+      Enum.reduce(MapSet.difference(mapset, keys_mapset), mapset, fn elem, mapset ->
+        MapSet.delete(mapset, elem)
+      end)
+
+    Enum.reduce(MapSet.difference(keys_mapset, mapset), mapset, fn elem, mapset ->
+      MapSet.put(mapset, elem)
+    end)
   end
 
   def bottom?(map) do

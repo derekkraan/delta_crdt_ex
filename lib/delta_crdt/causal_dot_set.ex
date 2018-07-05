@@ -18,6 +18,8 @@ defimpl DeltaCrdt.SemiLattice, for: DeltaCrdt.CausalDotSet do
 
   defp convert_bottom(set), do: set
 
+  def minimum_delta(_state, delta), do: delta
+
   def join(set1, set2) do
     set1 = convert_bottom(set1)
     set2 = convert_bottom(set2)

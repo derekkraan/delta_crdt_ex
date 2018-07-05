@@ -20,9 +20,6 @@ defmodule DeltaCrdt.CausalCrdt do
   def child_spec(opts \\ []) do
     name = Keyword.get(opts, :name, nil)
     crdt_module = Keyword.get(opts, :crdt, nil)
-    notify = Keyword.get(opts, :notify, nil)
-    ship_interval = Keyword.get(opts, :ship_interval, @default_ship_interval)
-    ship_debounce = Keyword.get(opts, :ship_debounce, @default_ship_debounce)
 
     if is_nil(name) do
       raise "must specify :name in options, got: #{inspect(opts)}"
@@ -34,23 +31,21 @@ defmodule DeltaCrdt.CausalCrdt do
 
     %{
       id: name,
-      start:
-        {__MODULE__, :start_link,
-         [crdt_module, notify, ship_interval, ship_debounce, [name: name]]}
+      start: {__MODULE__, :start_link, [crdt_module, Keyword.drop(opts, [:name]), [name: name]]}
     }
   end
 
   @doc """
   Start a DeltaCrdt.
   """
-  def start_link(
-        crdt_module,
-        notify \\ nil,
-        ship_interval \\ @default_ship_interval,
-        ship_debounce \\ @default_ship_debounce,
-        opts \\ []
-      ) do
-    GenServer.start_link(__MODULE__, {crdt_module, notify, ship_interval, ship_debounce}, opts)
+  def start_link(crdt_module, opts \\ [], genserver_opts \\ []) do
+    GenServer.start_link(
+      __MODULE__,
+      {crdt_module, Keyword.get(opts, :notify, nil),
+       Keyword.get(opts, :ship_interval, @default_ship_interval),
+       Keyword.get(opts, :ship_debounce, @default_ship_debounce)},
+      genserver_opts
+    )
   end
 
   def read(server, timeout \\ 5000) do
@@ -91,12 +86,14 @@ defmodule DeltaCrdt.CausalCrdt do
     ship_interval_or_state_to_all(state)
   end
 
-  defp send_notification(%{notify: nil}), do: nil
+  defp send_notification(%{notify: nil}, reply_to) do
+    GenServer.reply(reply_to, :ok)
+  end
 
-  defp send_notification(%{notify: {pid, msg}}) do
+  defp send_notification(%{notify: {pid, msg}}, reply_to) do
     case Process.whereis(pid) do
-      nil -> nil
-      loc -> send(loc, msg)
+      nil -> GenServer.reply(reply_to, :ok)
+      loc -> send(loc, {msg, reply_to})
     end
   end
 
@@ -217,24 +214,25 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_info({:ship, s}, %{shipped_sequence_number: old_s} = state)
+  def handle_info({:ship, reply_to, s}, %{shipped_sequence_number: old_s} = state)
       when s > old_s + @ship_after_x_deltas do
     ship_interval_or_state_to_all(state)
 
-    send_notification(state)
+    send_notification(state, reply_to)
 
     {:noreply, %{state | shipped_sequence_number: s}}
   end
 
-  def handle_info({:ship, s}, %{sequence_number: s} = state) do
+  def handle_info({:ship, reply_to, s}, %{sequence_number: s} = state) do
     ship_interval_or_state_to_all(state)
 
-    send_notification(state)
+    send_notification(state, reply_to)
 
     {:noreply, %{state | shipped_sequence_number: s}}
   end
 
-  def handle_info({:ship, _s}, state) do
+  def handle_info({:ship, reply_to, _s}, state) do
+    GenServer.reply(reply_to, :ok)
     {:noreply, state}
   end
 
@@ -257,9 +255,9 @@ defmodule DeltaCrdt.CausalCrdt do
     {:reply, :ok, state}
   end
 
-  def handle_call(:try_ship, _f, state) do
-    Process.send_after(self(), {:ship, state.sequence_number}, state.ship_debounce)
-    {:reply, :ok, state}
+  def handle_call(:try_ship, from, state) do
+    Process.send_after(self(), {:ship, from, state.sequence_number}, state.ship_debounce)
+    {:noreply, state}
   end
 
   def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),
@@ -315,7 +313,7 @@ defmodule DeltaCrdt.Periodic do
   end
 
   def handle_info(:tick, {parent, message, interval}) do
-    GenServer.call(parent, message, :infinity)
+    GenServer.call(parent, message, 10_000)
     Process.send_after(self(), :tick, interval)
     {:noreply, {parent, message, interval}}
   end
