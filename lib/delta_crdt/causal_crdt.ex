@@ -90,6 +90,9 @@ defmodule DeltaCrdt.CausalCrdt do
     GenServer.reply(reply_to, :ok)
   end
 
+  defp send_notification(%{notify: {pid, msg}}, reply_to) when is_pid(pid),
+    do: send(pid, {msg, reply_to})
+
   defp send_notification(%{notify: {pid, msg}}, reply_to) do
     case Process.whereis(pid) do
       nil -> GenServer.reply(reply_to, :ok)
