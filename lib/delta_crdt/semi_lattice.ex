@@ -16,7 +16,7 @@ defimpl DeltaCrdt.SemiLattice, for: Any do
     DeltaCrdt.SemiLattice.join(Map.merge(struct.new(), s1), s2)
   end
 
-  def minimum_delta(_state, delta), do: delta
+  def minimum_delta(state, delta), do: {join(state, delta), delta}
 
   def bottom?(%{state: :bottom}), do: true
   def bottom?(_), do: false

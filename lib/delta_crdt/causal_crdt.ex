@@ -6,7 +6,9 @@ defmodule DeltaCrdt.CausalCrdt do
   @default_ship_interval 50
   @default_ship_debounce 50
 
-  @ship_after_x_deltas 1000
+  @outstanding_ack_timeout 20_000
+
+  @ship_after_x_deltas 100
   @gc_interval 10_000
 
   @type delta :: {k :: integer(), delta :: any()}
@@ -65,7 +67,8 @@ defmodule DeltaCrdt.CausalCrdt do
               sequence_number: 0,
               ship_debounce: 0,
               deltas: %{},
-              ack_map: %{}
+              ack_map: %{},
+              outstanding_acks: %{}
   end
 
   def init({crdt_module, notify, ship_interval, ship_debounce}) do
@@ -102,11 +105,13 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
+  @spec ship_state_to_neighbour(term(), term()) :: neighbour :: term() | nil
   defp ship_state_to_neighbour(neighbour, state) do
     remote_acked = Map.get(state.ack_map, neighbour, 0)
 
     if Enum.empty?(state.deltas) || Map.keys(state.deltas) |> Enum.min() > remote_acked do
-      send(neighbour, {:delta, {self(), state.crdt_state}, state.sequence_number})
+      send(neighbour, {:delta, {self(), neighbour, state.crdt_state}, state.sequence_number})
+      {neighbour, state.sequence_number}
     else
       state.deltas
       |> Enum.filter(fn
@@ -126,23 +131,27 @@ defmodule DeltaCrdt.CausalCrdt do
             end)
 
           if(remote_acked < state.sequence_number) do
-            send(neighbour, {:delta, {self(), delta_interval}, state.sequence_number})
+            send(neighbour, {:delta, {self(), neighbour, delta_interval}, state.sequence_number})
+            {neighbour, state.sequence_number}
           end
       end
     end
   end
 
   defp ship_interval_or_state_to_all(state) do
-    Enum.each(state.neighbours, fn n -> ship_state_to_neighbour(n, state) end)
+    shipped_to =
+      MapSet.difference(state.neighbours, MapSet.new(Map.keys(state.outstanding_acks)))
+      |> Enum.map(fn n -> ship_state_to_neighbour(n, state) end)
+      |> Enum.filter(fn
+        nil -> false
+        {neighbour, sequence_number} -> {neighbour, sequence_number}
+      end)
+      |> Map.new()
+
+    Map.merge(state.outstanding_acks, shipped_to)
   end
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
-
-  def handle_info(:ship_interval_or_state_to_all, state) do
-    ship_interval_or_state_to_all(state)
-
-    {:noreply, state}
-  end
 
   def handle_info({:add_neighbours, pids}, state) do
     new_neighbours = pids |> MapSet.new() |> MapSet.union(state.neighbours)
@@ -156,7 +165,9 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_info(
-        {:delta, {neighbour, %{state: _d_s, causal_context: delta_c} = delta_interval}, n},
+        {:delta,
+         {neighbour, self_reference, %{state: _d_s, causal_context: delta_c} = delta_interval},
+         n},
         %{crdt_state: %{state: _s, causal_context: c}} = state
       ) do
     last_known_states = c.maxima
@@ -184,18 +195,14 @@ defmodule DeltaCrdt.CausalCrdt do
 
       {:noreply, state}
     else
-      send(neighbour, {:ack, self(), n})
+      send(neighbour, {:ack, self_reference, n})
 
       new_state =
         case DeltaCrdt.SemiLattice.minimum_delta(state.crdt_state, delta_interval) do
-          :bottom ->
+          {_new_crdt_state, :bottom} ->
             state
 
-          minimum_delta ->
-            new_crdt_state =
-              DeltaCrdt.SemiLattice.join(state.crdt_state, minimum_delta)
-              |> DeltaCrdt.SemiLattice.compress()
-
+          {new_crdt_state, minimum_delta} ->
             new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, minimum_delta})
             new_sequence_number = state.sequence_number + 1
 
@@ -216,25 +223,27 @@ defmodule DeltaCrdt.CausalCrdt do
       {:noreply, state}
     else
       new_ack_map = Map.put(state.ack_map, neighbour, n)
-      {:noreply, %{state | ack_map: new_ack_map}}
+      new_outstanding_acks = Map.delete(state.outstanding_acks, neighbour)
+      {:noreply, %{state | ack_map: new_ack_map, outstanding_acks: new_outstanding_acks}}
     end
   end
 
   def handle_info({:ship, reply_to, s}, %{shipped_sequence_number: old_s} = state)
       when s > old_s + @ship_after_x_deltas do
-    ship_interval_or_state_to_all(state)
+    outstanding_acks = ship_interval_or_state_to_all(state)
+    set_outstanding_ack_timeout(outstanding_acks)
 
     send_notification(state, reply_to)
 
-    {:noreply, %{state | shipped_sequence_number: s}}
+    {:noreply, %{state | shipped_sequence_number: s, outstanding_acks: outstanding_acks}}
   end
 
   def handle_info({:ship, reply_to, s}, %{sequence_number: s} = state) do
-    ship_interval_or_state_to_all(state)
+    outstanding_acks = ship_interval_or_state_to_all(state)
 
     send_notification(state, reply_to)
 
-    {:noreply, %{state | shipped_sequence_number: s}}
+    {:noreply, %{state | shipped_sequence_number: s, outstanding_acks: outstanding_acks}}
   end
 
   def handle_info({:ship, reply_to, _s}, state) do
@@ -242,9 +251,21 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, state}
   end
 
+  def handle_info({:cancel_outstanding_ack, neighbour, sequence_number}, state) do
+    new_outstanding_acks =
+      case Map.get(state.outstanding_acks, neighbour) do
+        ^sequence_number -> Map.delete(state.outstanding_acks, neighbour)
+        _ -> state.outstanding_acks
+      end
+
+    {:noreply, %{state | outstanding_acks: new_outstanding_acks}}
+  end
+
   def handle_call(:garbage_collect_deltas, _from, state) do
+    compressed_crdt_state = DeltaCrdt.SemiLattice.compress(state.crdt_state)
+
     if Enum.empty?(state.neighbours) do
-      {:noreply, state}
+      {:noreply, %{state | crdt_state: compressed_crdt_state}}
     else
       l =
         state.neighbours
@@ -253,12 +274,23 @@ defmodule DeltaCrdt.CausalCrdt do
         |> Enum.min(fn -> 0 end)
 
       new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Map.new()
-      {:reply, :ok, %{state | deltas: new_deltas}}
+      {:reply, :ok, %{state | deltas: new_deltas, crdt_state: compressed_crdt_state}}
     end
   end
 
   def handle_call(:try_ship, _f, %{shipped_sequence_number: same, sequence_number: same} = state) do
     {:reply, :ok, state}
+  end
+
+  def handle_call(
+        :try_ship,
+        from,
+        %{sequence_number: current, shipped_sequence_number: shipped} = state
+      )
+      when shipped + @ship_after_x_deltas < current do
+    outstanding_acks = ship_interval_or_state_to_all(state)
+    send_notification(state, from)
+    {:noreply, %{state | shipped_sequence_number: current, outstanding_acks: outstanding_acks}}
   end
 
   def handle_call(:try_ship, from, state) do
@@ -282,18 +314,14 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, handle_operation(operation, state)}
   end
 
-  def handle_operation({function, args}, state) do
+  defp handle_operation({function, args}, state) do
     delta = apply(state.crdt_module, function, args ++ [state.node_id, state.crdt_state])
 
     case DeltaCrdt.SemiLattice.minimum_delta(state.crdt_state, delta) do
-      :bottom ->
+      {_new_crdt_state, :bottom} ->
         state
 
-      minimum_delta ->
-        new_crdt_state =
-          DeltaCrdt.SemiLattice.join(state.crdt_state, minimum_delta)
-          |> DeltaCrdt.SemiLattice.compress()
-
+      {new_crdt_state, minimum_delta} ->
         new_deltas = Map.put(state.deltas, state.sequence_number, {self(), minimum_delta})
 
         new_sequence_number = state.sequence_number + 1
@@ -302,6 +330,16 @@ defmodule DeltaCrdt.CausalCrdt do
         |> Map.put(:crdt_state, new_crdt_state)
         |> Map.put(:sequence_number, new_sequence_number)
     end
+  end
+
+  defp set_outstanding_ack_timeout(outstanding_acks) do
+    Enum.each(outstanding_acks, fn {neighbour, sequence_number} ->
+      Process.send_after(
+        self(),
+        {:cancel_outstanding_ack, neighbour, sequence_number},
+        @outstanding_ack_timeout
+      )
+    end)
   end
 end
 
@@ -319,7 +357,7 @@ defmodule DeltaCrdt.Periodic do
   end
 
   def handle_info(:tick, {parent, message, interval}) do
-    GenServer.call(parent, message, 10_000)
+    GenServer.call(parent, message, :infinity)
     Process.send_after(self(), :tick, interval)
     {:noreply, {parent, message, interval}}
   end

@@ -24,29 +24,22 @@ defmodule CausalCrdtTest do
     GenServer.cast(context.c1, {:operation, {:add, ["Derek", "one_wins"]}})
     GenServer.cast(context.c2, {:operation, {:add, ["Derek", "two_wins"]}})
     GenServer.cast(context.c3, {:operation, {:add, ["Derek", "three_wins"]}})
-    send(context.c1, :ship_interval_or_state_to_all)
-    send(context.c2, :ship_interval_or_state_to_all)
-    send(context.c3, :ship_interval_or_state_to_all)
-    Process.sleep(100)
+    Process.sleep(200)
     assert %{"Derek" => "three_wins"} == CausalCrdt.read(context.c1)
   end
 
   test "add wins", context do
     GenServer.cast(context.c1, {:operation, {:add, ["Derek", "add_wins"]}})
     GenServer.cast(context.c2, {:operation, {:remove, ["Derek"]}})
-    send(context.c1, :ship_interval_or_state_to_all)
-    send(context.c2, :ship_interval_or_state_to_all)
-    Process.sleep(20)
+    Process.sleep(200)
     assert %{"Derek" => "add_wins"} == CausalCrdt.read(context.c1)
   end
 
   test "can remove", context do
     GenServer.cast(context.c1, {:operation, {:add, ["Derek", "add_wins"]}})
-    send(context.c1, :ship_interval_or_state_to_all)
-    Process.sleep(20)
+    Process.sleep(200)
     GenServer.cast(context.c2, {:operation, {:remove, ["Derek"]}})
-    send(context.c2, :ship_interval_or_state_to_all)
-    Process.sleep(20)
+    Process.sleep(200)
     assert %{} == CausalCrdt.read(context.c1)
   end
 end

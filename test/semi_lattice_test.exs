@@ -13,8 +13,8 @@ defmodule SemiLatticeTest do
                 node_id <- term() do
         delta = AWLWWMap.add(key, val, node_id, state)
         new_state = SemiLattice.join(state, delta)
-        assert delta == SemiLattice.minimum_delta(state, delta)
-        assert :bottom = SemiLattice.minimum_delta(new_state, delta)
+        assert {_state, ^delta} = SemiLattice.minimum_delta(state, delta)
+        assert {_state, :bottom} = SemiLattice.minimum_delta(new_state, delta)
       end
     end
 
@@ -40,7 +40,7 @@ defmodule SemiLatticeTest do
           SemiLattice.join(state, d1)
           |> SemiLattice.join(d2)
 
-        assert :bottom = SemiLattice.minimum_delta(new_state, delta_interval)
+        assert {_state, :bottom} = SemiLattice.minimum_delta(new_state, delta_interval)
 
         # assert d2 == SemiLattice.minimum_delta(new_state, delta_interval)
       end
