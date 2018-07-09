@@ -155,22 +155,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_info({:add_neighbours, pids}, state) do
     new_neighbours = pids |> MapSet.new() |> MapSet.union(state.neighbours)
-
-    new_state = %{state | neighbours: new_neighbours}
-
-    outstanding_acks = ship_interval_or_state_to_all(new_state)
-
-    {:noreply, %{new_state | outstanding_acks: outstanding_acks}}
-  end
-
-  def handle_info({:add_neighbour, neighbour_pid}, state) do
-    new_neighbours = MapSet.put(state.neighbours, neighbour_pid)
-
-    new_state = %{state | neighbours: new_neighbours}
-
-    outstanding_acks = ship_interval_or_state_to_all(new_state)
-
-    {:noreply, %{new_state | outstanding_acks: outstanding_acks}}
+    {:noreply, %{state | neighbours: new_neighbours}}
   end
 
   def handle_info(

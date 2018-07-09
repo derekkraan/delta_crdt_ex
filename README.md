@@ -27,8 +27,8 @@ alias DeltaCrdt.{CausalCrdt, AWLWWMap}
 {:ok, crdt2} = CausalCrdt.start_link(AWLWWMap)
 
 # make them aware of each other
-send(crdt, {:add_neighbour, crdt2})
-send(crdt2, {:add_neighbour, crdt})
+send(crdt, {:add_neighbours, [crdt2]})
+send(crdt2, {:add_neighbours, [crdt]})
 
 # do an operation on the CRDT
 GenServer.cast(crdt, {:operation, {:add, ["CRDT", "is magic"]}})
