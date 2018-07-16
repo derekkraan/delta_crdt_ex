@@ -19,6 +19,20 @@ defmodule DeltaCrdt.CausalCrdt do
   which is an anti-entropy algorithm for δ-CRDTs. You can find the original paper here: https://arxiv.org/pdf/1603.01529.pdf
   """
 
+  defmodule State do
+    defstruct node_id: nil,
+              notify: nil,
+              neighbours: MapSet.new(),
+              crdt_module: nil,
+              crdt_state: nil,
+              shipped_sequence_number: 0,
+              sequence_number: 0,
+              ship_debounce: 0,
+              deltas: %{},
+              ack_map: %{},
+              outstanding_acks: %{}
+  end
+
   def child_spec(opts \\ []) do
     name = Keyword.get(opts, :name, nil)
     crdt_module = Keyword.get(opts, :crdt, nil)
@@ -57,19 +71,7 @@ defmodule DeltaCrdt.CausalCrdt do
     apply(crdt_module, :read, [state])
   end
 
-  defmodule State do
-    defstruct node_id: nil,
-              notify: nil,
-              neighbours: MapSet.new(),
-              crdt_module: nil,
-              crdt_state: nil,
-              shipped_sequence_number: 0,
-              sequence_number: 0,
-              ship_debounce: 0,
-              deltas: %{},
-              ack_map: %{},
-              outstanding_acks: %{}
-  end
+  ### GenServer callbacks
 
   def init({crdt_module, notify, ship_interval, ship_debounce}) do
     DeltaCrdt.Periodic.start_link(:garbage_collect_deltas, @gc_interval)
@@ -89,20 +91,6 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def terminate(_reason, state) do
     ship_interval_or_state_to_all(state)
-  end
-
-  defp send_notification(%{notify: nil}, reply_to) do
-    GenServer.reply(reply_to, :ok)
-  end
-
-  defp send_notification(%{notify: {pid, msg}}, reply_to) when is_pid(pid),
-    do: send(pid, {msg, reply_to})
-
-  defp send_notification(%{notify: {pid, msg}}, reply_to) do
-    case Process.whereis(pid) do
-      nil -> GenServer.reply(reply_to, :ok)
-      loc -> send(loc, {msg, reply_to})
-    end
   end
 
   @spec ship_state_to_neighbour(term(), term()) :: neighbour :: term() | nil
@@ -164,31 +152,7 @@ defmodule DeltaCrdt.CausalCrdt do
          n},
         %{crdt_state: %{state: _s, causal_context: c}} = state
       ) do
-    last_known_states = c.maxima
-
-    first_new_states =
-      Enum.reduce(delta_c.dots, %{}, fn {n, v}, acc ->
-        Map.update(acc, n, v, fn y -> Enum.min([v, y]) end)
-      end)
-
-    reject =
-      first_new_states
-      |> Enum.find(false, fn {n, v} ->
-        case Map.get(last_known_states, n) do
-          nil -> false
-          x -> x + 1 < v
-        end
-      end)
-
-    if reject do
-      Logger.debug(fn ->
-        "not applying delta interval from #{inspect(neighbour)} because #{
-          inspect(last_known_states)
-        } is incompatible with #{inspect(first_new_states)}"
-      end)
-
-      {:noreply, state}
-    else
+    if DeltaCrdt.AntiEntropy.is_strict_expansion(c, delta_c) do
       send(neighbour, {:ack, self_reference, n})
 
       new_state =
@@ -209,6 +173,12 @@ defmodule DeltaCrdt.CausalCrdt do
         end
 
       {:noreply, new_state}
+    else
+      Logger.debug(fn ->
+        "not applying delta interval from #{inspect(neighbour)} because delta interval is not a strict expansion"
+      end)
+
+      {:noreply, state}
     end
   end
 
@@ -334,5 +304,19 @@ defmodule DeltaCrdt.CausalCrdt do
         @outstanding_ack_timeout
       )
     end)
+  end
+
+  defp send_notification(%{notify: nil}, reply_to) do
+    GenServer.reply(reply_to, :ok)
+  end
+
+  defp send_notification(%{notify: {pid, msg}}, reply_to) when is_pid(pid),
+    do: send(pid, {msg, reply_to})
+
+  defp send_notification(%{notify: {pid, msg}}, reply_to) do
+    case Process.whereis(pid) do
+      nil -> GenServer.reply(reply_to, :ok)
+      loc -> send(loc, {msg, reply_to})
+    end
   end
 end
