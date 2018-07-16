@@ -75,7 +75,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def init({crdt_module, notify, ship_interval, ship_debounce}) do
     DeltaCrdt.Periodic.start_link(:garbage_collect_deltas, @gc_interval)
-    DeltaCrdt.Periodic.start_link(:try_ship, ship_interval)
+    DeltaCrdt.Periodic.start_link(:ship, ship_interval)
+    DeltaCrdt.Periodic.start_link(:try_ship_client, ship_interval)
 
     Process.flag(:trap_exit, true)
 
@@ -97,7 +98,7 @@ defmodule DeltaCrdt.CausalCrdt do
   defp ship_state_to_neighbour(neighbour, state) do
     remote_acked = Map.get(state.ack_map, neighbour, 0)
 
-    if Enum.empty?(state.deltas) || Map.keys(state.deltas) |> Enum.min() > remote_acked do
+    if Enum.empty?(state.deltas) || Enum.min(Map.keys(state.deltas)) > remote_acked do
       send(neighbour, {:delta, {self(), neighbour, state.crdt_state}, state.sequence_number})
       {neighbour, state.sequence_number}
     else
@@ -183,7 +184,7 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_info({:ack, neighbour, n}, state) do
-    if(Map.get(state.ack_map, neighbour, 0) >= n) do
+    if(Map.get(state.ack_map, neighbour, 0) > n) do
       {:noreply, state}
     else
       new_ack_map = Map.put(state.ack_map, neighbour, n)
@@ -192,26 +193,27 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_info({:ship, reply_to, s}, %{shipped_sequence_number: old_s} = state)
-      when s > old_s + @ship_after_x_deltas do
-    outstanding_acks = ship_interval_or_state_to_all(state)
-    set_outstanding_ack_timeout(outstanding_acks)
-
+  def handle_info({:ship_client, reply_to, s}, %{sequence_number: s} = state) do
     send_notification(state, reply_to)
-
-    {:noreply, %{state | shipped_sequence_number: s, outstanding_acks: outstanding_acks}}
+    {:noreply, %{state | shipped_sequence_number: s}}
   end
 
-  def handle_info({:ship, reply_to, s}, %{sequence_number: s} = state) do
-    outstanding_acks = ship_interval_or_state_to_all(state)
-
+  def handle_info(
+        {:ship_client, reply_to, _s},
+        %{sequence_number: seq, shipped_sequence_number: shipped} = state
+      )
+      when seq - shipped > @ship_after_x_deltas do
     send_notification(state, reply_to)
-
-    {:noreply, %{state | shipped_sequence_number: s, outstanding_acks: outstanding_acks}}
+    {:noreply, %{state | shipped_sequence_number: seq}}
   end
 
-  def handle_info({:ship, reply_to, _s}, state) do
-    GenServer.reply(reply_to, :ok)
+  def handle_info({:ship_client, reply_to, _s}, state) do
+    Process.send_after(
+      self(),
+      {:ship_client, reply_to, state.sequence_number},
+      state.ship_debounce
+    )
+
     {:noreply, state}
   end
 
@@ -242,24 +244,23 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_call(:try_ship, _f, %{shipped_sequence_number: same, sequence_number: same} = state) do
+  def handle_call(
+        :try_ship_client,
+        _f,
+        %{shipped_sequence_number: same, sequence_number: same} = state
+      ) do
     {:reply, :ok, state}
   end
 
-  def handle_call(
-        :try_ship,
-        from,
-        %{sequence_number: current, shipped_sequence_number: shipped} = state
-      )
-      when shipped + @ship_after_x_deltas < current do
-    outstanding_acks = ship_interval_or_state_to_all(state)
-    send_notification(state, from)
-    {:noreply, %{state | shipped_sequence_number: current, outstanding_acks: outstanding_acks}}
+  def handle_call(:try_ship_client, from, state) do
+    Process.send_after(self(), {:ship_client, from, state.sequence_number}, state.ship_debounce)
+    {:noreply, state}
   end
 
-  def handle_call(:try_ship, from, state) do
-    Process.send_after(self(), {:ship, from, state.sequence_number}, state.ship_debounce)
-    {:noreply, state}
+  def handle_call(:ship, _from, state) do
+    outstanding_acks = ship_interval_or_state_to_all(state)
+    set_outstanding_ack_timeout(outstanding_acks)
+    {:reply, :ok, %{state | outstanding_acks: outstanding_acks}}
   end
 
   def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),

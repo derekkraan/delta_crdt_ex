@@ -24,22 +24,37 @@ defmodule CausalCrdtTest do
     GenServer.cast(context.c1, {:operation, {:add, ["Derek", "one_wins"]}})
     GenServer.cast(context.c2, {:operation, {:add, ["Derek", "two_wins"]}})
     GenServer.cast(context.c3, {:operation, {:add, ["Derek", "three_wins"]}})
-    Process.sleep(200)
+    Process.sleep(100)
     assert %{"Derek" => "three_wins"} == CausalCrdt.read(context.c1)
+    assert %{"Derek" => "three_wins"} == CausalCrdt.read(context.c2)
+    assert %{"Derek" => "three_wins"} == CausalCrdt.read(context.c3)
   end
 
   test "add wins", context do
     GenServer.cast(context.c1, {:operation, {:add, ["Derek", "add_wins"]}})
     GenServer.cast(context.c2, {:operation, {:remove, ["Derek"]}})
-    Process.sleep(200)
+    Process.sleep(100)
     assert %{"Derek" => "add_wins"} == CausalCrdt.read(context.c1)
+    assert %{"Derek" => "add_wins"} == CausalCrdt.read(context.c2)
   end
 
   test "can remove", context do
-    GenServer.cast(context.c1, {:operation, {:add, ["Derek", "add_wins"]}})
-    Process.sleep(200)
-    GenServer.cast(context.c2, {:operation, {:remove, ["Derek"]}})
-    Process.sleep(200)
+    GenServer.call(context.c1, {:operation, {:add, ["Derek", "add_wins"]}})
+    Process.sleep(100)
+    assert %{"Derek" => "add_wins"} == CausalCrdt.read(context.c2)
+    GenServer.call(context.c2, {:operation, {:remove, ["Derek"]}})
+    Process.sleep(100)
+    assert %{} == CausalCrdt.read(context.c2)
     assert %{} == CausalCrdt.read(context.c1)
+  end
+
+  test "syncs after adding neighbour" do
+    {:ok, c1} = CausalCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
+    {:ok, c2} = CausalCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
+    GenServer.call(c1, {:operation, {:add, ["CRDT1", "represent"]}})
+    GenServer.call(c2, {:operation, {:add, ["CRDT2", "also here"]}})
+    send(c1, {:add_neighbours, [c2]})
+    Process.sleep(100)
+    assert %{} = CausalCrdt.read(c1)
   end
 end
