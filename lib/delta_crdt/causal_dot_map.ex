@@ -25,8 +25,6 @@ defimpl DeltaCrdt.SemiLattice, for: DeltaCrdt.CausalDotMap do
   def minimum_delta(state, delta) do
     candidate_new_state = join(state, delta)
 
-    old_state = Map.delete(state, :keys)
-
     if Map.delete(candidate_new_state, :keys) == Map.delete(state, :keys) do
       {state, :bottom}
     else
