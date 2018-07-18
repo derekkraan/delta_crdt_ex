@@ -108,7 +108,7 @@ defmodule DeltaCrdt.CausalCrdt do
       neighbour_pid =
         case neighbour do
           neighbour when is_pid(neighbour) -> neighbour
-          {name, node_ref} = ref -> GenServer.whereis(ref)
+          {_name, _node_ref} = ref -> GenServer.whereis(ref)
         end
 
       Enum.filter(state.deltas, fn

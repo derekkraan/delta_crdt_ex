@@ -22,9 +22,9 @@ defmodule DeltaCrdt.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:benchee, ">= 0.0.0", only: :dev},
-      {:exprof, "~> 0.2.0", only: :dev},
-      {:ex_doc, ">= 0.0.0", only: :dev},
+      {:benchee, ">= 0.0.0", only: :dev, runtime: false},
+      {:exprof, "~> 0.2.0", only: :dev, runtime: false},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:stream_data, "~> 0.4", only: :test}
     ]
   end
