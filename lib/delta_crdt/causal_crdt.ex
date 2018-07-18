@@ -113,13 +113,13 @@ defmodule DeltaCrdt.CausalCrdt do
           nil
 
         deltas ->
-          delta_interval =
-            Enum.map(deltas, fn {_i, {_from, delta}} -> delta end)
-            |> Enum.reduce(fn delta, delta_interval ->
-              DeltaCrdt.SemiLattice.join(delta_interval, delta)
-            end)
-
           if(remote_acked < state.sequence_number) do
+            delta_interval =
+              Enum.map(deltas, fn {_i, {_from, delta}} -> delta end)
+              |> Enum.reduce(fn delta, delta_interval ->
+                DeltaCrdt.SemiLattice.join(delta_interval, delta)
+              end)
+
             send(neighbour, {:delta, {self(), neighbour, delta_interval}, state.sequence_number})
             {neighbour, state.sequence_number}
           end
