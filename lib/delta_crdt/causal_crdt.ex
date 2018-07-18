@@ -102,9 +102,14 @@ defmodule DeltaCrdt.CausalCrdt do
       send(neighbour, {:delta, {self(), neighbour, state.crdt_state}, state.sequence_number})
       {neighbour, state.sequence_number}
     else
-      state.deltas
-      |> Enum.filter(fn
-        {_i, {^neighbour, _delta}} -> false
+      neighbour_pid =
+        case neighbour do
+          neighbour when is_pid(neighbour) -> neighbour
+          {name, node_ref} = ref -> GenServer.whereis(ref)
+        end
+
+      Enum.filter(state.deltas, fn
+        {_i, {^neighbour_pid, _delta}} -> false
         _ -> true
       end)
       |> Enum.filter(fn {i, _delta} -> remote_acked <= i && i < state.sequence_number end)
