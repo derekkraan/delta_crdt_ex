@@ -4,9 +4,15 @@ defmodule CausalCrdtTest do
   alias DeltaCrdt.{CausalCrdt, AWLWWMap}
 
   setup do
-    {:ok, c1} = CausalCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
-    {:ok, c2} = CausalCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
-    {:ok, c3} = CausalCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
+    {:ok, c1} =
+      CausalCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
+
+    {:ok, c2} =
+      CausalCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
+
+    {:ok, c3} =
+      CausalCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
+
     send(c1, {:add_neighbours, [c2, c3]})
     send(c2, {:add_neighbours, [c1, c3]})
     send(c3, {:add_neighbours, [c2, c1]})

@@ -3,6 +3,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
   require Logger
 
+  @default_sync_interval 50
+
   @default_ship_interval 50
   @default_ship_debounce 50
 
@@ -60,6 +62,7 @@ defmodule DeltaCrdt.CausalCrdt do
     GenServer.start_link(
       __MODULE__,
       {crdt_module, Keyword.get(opts, :notify, nil),
+       Keyword.get(opts, :sync_interval, @default_sync_interval),
        Keyword.get(opts, :ship_interval, @default_ship_interval),
        Keyword.get(opts, :ship_debounce, @default_ship_debounce)},
       genserver_opts
@@ -73,9 +76,9 @@ defmodule DeltaCrdt.CausalCrdt do
 
   ### GenServer callbacks
 
-  def init({crdt_module, notify, ship_interval, ship_debounce}) do
+  def init({crdt_module, notify, sync_interval, ship_interval, ship_debounce}) do
     DeltaCrdt.Periodic.start_link(:garbage_collect_deltas, @gc_interval)
-    DeltaCrdt.Periodic.start_link(:ship, ship_interval)
+    DeltaCrdt.Periodic.start_link(:sync, sync_interval)
     DeltaCrdt.Periodic.start_link(:try_ship_client, ship_interval)
 
     Process.flag(:trap_exit, true)
@@ -91,11 +94,11 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def terminate(_reason, state) do
-    ship_interval_or_state_to_all(state)
+    sync_interval_or_state_to_all(state)
   end
 
-  @spec ship_state_to_neighbour(term(), term()) :: neighbour :: term() | nil
-  defp ship_state_to_neighbour(neighbour, state) do
+  @spec sync_state_to_neighbour(term(), term()) :: neighbour :: term() | nil
+  defp sync_state_to_neighbour(neighbour, state) do
     remote_acked = Map.get(state.ack_map, neighbour, 0)
 
     if Enum.empty?(state.deltas) || Enum.min(Map.keys(state.deltas)) > remote_acked do
@@ -132,10 +135,10 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  defp ship_interval_or_state_to_all(state) do
+  defp sync_interval_or_state_to_all(state) do
     shipped_to =
       MapSet.difference(state.neighbours, MapSet.new(Map.keys(state.outstanding_acks)))
-      |> Enum.map(fn n -> ship_state_to_neighbour(n, state) end)
+      |> Enum.map(fn n -> sync_state_to_neighbour(n, state) end)
       |> Enum.filter(fn
         nil -> false
         {neighbour, sequence_number} -> {neighbour, sequence_number}
@@ -274,8 +277,9 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, state}
   end
 
-  def handle_call(:ship, _from, state) do
-    outstanding_acks = ship_interval_or_state_to_all(state)
+  def(handle_call(:sync, _from, state)) do
+    outstanding_acks = sync_interval_or_state_to_all(state)
+
     {:reply, :ok, %{state | outstanding_acks: outstanding_acks}}
   end
 
