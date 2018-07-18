@@ -137,7 +137,19 @@ defmodule DeltaCrdt.CausalCrdt do
       end)
       |> Map.new()
 
+    set_outstanding_ack_timeout(shipped_to)
+
     Map.merge(state.outstanding_acks, shipped_to)
+  end
+
+  defp set_outstanding_ack_timeout(outstanding_acks) do
+    Enum.each(outstanding_acks, fn {neighbour, sequence_number} ->
+      Process.send_after(
+        self(),
+        {:cancel_outstanding_ack, neighbour, sequence_number},
+        @outstanding_ack_timeout
+      )
+    end)
   end
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
@@ -259,7 +271,6 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_call(:ship, _from, state) do
     outstanding_acks = ship_interval_or_state_to_all(state)
-    set_outstanding_ack_timeout(outstanding_acks)
     {:reply, :ok, %{state | outstanding_acks: outstanding_acks}}
   end
 
@@ -295,16 +306,6 @@ defmodule DeltaCrdt.CausalCrdt do
         |> Map.put(:crdt_state, new_crdt_state)
         |> Map.put(:sequence_number, new_sequence_number)
     end
-  end
-
-  defp set_outstanding_ack_timeout(outstanding_acks) do
-    Enum.each(outstanding_acks, fn {neighbour, sequence_number} ->
-      Process.send_after(
-        self(),
-        {:cancel_outstanding_ack, neighbour, sequence_number},
-        @outstanding_ack_timeout
-      )
-    end)
   end
 
   defp send_notification(%{notify: nil}, reply_to) do
