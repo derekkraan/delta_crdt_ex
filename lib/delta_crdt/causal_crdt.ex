@@ -101,7 +101,7 @@ defmodule DeltaCrdt.CausalCrdt do
   defp sync_state_to_neighbour(neighbour, state) do
     remote_acked = Map.get(state.ack_map, neighbour, 0)
 
-    if Enum.empty?(state.deltas) || Enum.min(Map.keys(state.deltas)) > remote_acked do
+    if Enum.min(Map.keys(state.deltas), fn -> state.sequence_number end) > remote_acked do
       send(neighbour, {:delta, {self(), neighbour, state.crdt_state}, state.sequence_number})
       {neighbour, state.sequence_number}
     else
@@ -164,7 +164,11 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_info({:add_neighbours, pids}, state) do
     new_neighbours = pids |> MapSet.new() |> MapSet.union(state.neighbours)
-    {:noreply, %{state | neighbours: new_neighbours}}
+    state = %{state | neighbours: new_neighbours}
+
+    outstanding_acks = sync_interval_or_state_to_all(state)
+
+    {:noreply, %{state | outstanding_acks: outstanding_acks}}
   end
 
   def handle_info(
