@@ -94,7 +94,7 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def terminate(_reason, state) do
-    sync_interval_or_state_to_all(state)
+    sync_interval_or_state_to_all(%{state | outstanding_acks: %{}})
   end
 
   @spec sync_state_to_neighbour(term(), term()) :: neighbour :: term() | nil
