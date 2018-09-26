@@ -25,6 +25,7 @@ defmodule DeltaCrdt.CausalCrdt do
     defstruct node_id: nil,
               notify: nil,
               neighbours: MapSet.new(),
+              neighbour_refs: %{},
               crdt_module: nil,
               crdt_state: nil,
               shipped_sequence_number: 0,
@@ -162,7 +163,23 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
 
+  def handle_info({:DOWN, ref, :process, _object, _reason}, state) do
+    new_state =
+      case Map.pop(state.neighbour_refs, ref) do
+        {nil, _neighbour_refs} ->
+          state
+
+        {pid, neighbour_refs} ->
+          Map.put(state, :neighbour_refs, neighbour_refs)
+          |> Map.put(:neighbours, MapSet.delete(state.neighbours, pid))
+      end
+
+    {:noreply, new_state}
+  end
+
   def handle_info({:add_neighbours, pids}, state) do
+    state = monitor_neighbours(pids, state)
+
     new_neighbours = pids |> MapSet.new() |> MapSet.union(state.neighbours)
     state = %{state | neighbours: new_neighbours}
 
@@ -281,7 +298,7 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, state}
   end
 
-  def(handle_call(:sync, _from, state)) do
+  def handle_call(:sync, _from, state) do
     outstanding_acks = sync_interval_or_state_to_all(state)
 
     {:reply, :ok, %{state | outstanding_acks: outstanding_acks}}
@@ -333,5 +350,15 @@ defmodule DeltaCrdt.CausalCrdt do
       nil -> GenServer.reply(reply_to, :ok)
       loc -> send(loc, {msg, reply_to})
     end
+  end
+
+  defp monitor_neighbours(pids, state) do
+    new_refs =
+      pids
+      |> MapSet.new()
+      |> MapSet.difference(state.neighbours)
+      |> Map.new(fn pid -> {Process.monitor(pid), pid} end)
+
+    %{state | neighbour_refs: Map.merge(state.neighbour_refs, new_refs)}
   end
 end
