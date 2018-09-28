@@ -98,7 +98,10 @@ defmodule DeltaCrdt.CausalCrdt do
     sync_interval_or_state_to_all(%{state | outstanding_acks: %{}})
   end
 
-  @spec sync_state_to_neighbour(term(), term()) :: neighbour :: term() | nil
+  defp resolve_neighbour(neighbour) when is_pid(neighbour), do: neighbour
+
+  defp resolve_neighbour({_name, _node_ref} = ref), do: GenServer.whereis(ref)
+
   defp sync_state_to_neighbour(neighbour, state) do
     remote_acked = Map.get(state.ack_map, neighbour, 0)
 
@@ -106,11 +109,7 @@ defmodule DeltaCrdt.CausalCrdt do
       send(neighbour, {:delta, {self(), neighbour, state.crdt_state}, state.sequence_number})
       {neighbour, state.sequence_number}
     else
-      neighbour_pid =
-        case neighbour do
-          neighbour when is_pid(neighbour) -> neighbour
-          {_name, _node_ref} = ref -> GenServer.whereis(ref)
-        end
+      neighbour_pid = resolve_neighbour(neighbour)
 
       Enum.filter(state.deltas, fn
         {_i, {^neighbour_pid, _delta}} -> false
