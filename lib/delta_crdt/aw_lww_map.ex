@@ -22,12 +22,6 @@ defmodule DeltaCrdt.AWLWWMap do
   * Add-wins means that if there is a conflict between an add and a remove operation, the add operation will win out. This is in contrast to remove-wins, where the remove operation would win.
 
   * Last-write-wins means that if there is a conflict between two write operations, the latest (as marked with a timestamp) will win. Underwater, every delta contains a timestamp which is used to resolve the conflicts.
-
-  Example usage:
-  ```
-  DeltaCrdt.
-
-  ```
   """
 
   alias DeltaCrdt.{CausalDotMap, AWSet, ORMap}
