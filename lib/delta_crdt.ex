@@ -15,13 +15,13 @@ defmodule DeltaCrdt do
   Here's a simple example to illustrate the possibilities:
 
   ```
-  iex> {:ok, crdt1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap)
-  iex> {:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap)
+  iex> {:ok, crdt1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 3)
+  iex> {:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 3)
   iex> DeltaCrdt.add_neighbours(crdt1, [crdt2])
   iex> DeltaCrdt.read(crdt1)
   %{}
   iex> DeltaCrdt.mutate(crdt1, :add, ["CRDT", "is magic!"])
-  iex> Process.sleep(60) # needed for the doctest
+  iex> Process.sleep(10) # needed for the doctest
   iex> DeltaCrdt.read(crdt2)
   %{"CRDT" => "is magic!"}
   ```
