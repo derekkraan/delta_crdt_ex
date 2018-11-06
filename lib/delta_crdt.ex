@@ -1,18 +1,18 @@
 defmodule DeltaCrdt do
   @moduledoc """
-  Convenience functions to start and manage delta CRDTs provided by this library
+  Start and interact with the Delta CRDTs provided by this library.
 
   A CRDT is a conflict-free replicated data-type. That is to say, it is a distributed data structure that automatically resolves conflicts in a way that is consistent across all replicas of the data. In other words, your distributed data is guaranteed to eventually converge globally.
 
   Normal CRDTs (otherwise called "state CRDTs") require transmission of the entire CRDT state with every change. This clearly doesn't scale, but there has been exciting research in the last few years into "Delta CRDTs", CRDTs that only transmit their deltas. This has enabled a whole new scale of applications for CRDTs, and it's also what this library is based on.
 
-  A Delta CRDT is made of two parts. First, the data structure itself, and second, an anti-entropy algorithm, which is responsible for convergence. `DeltaCrdt` implements Algorithm 2 from ["Delta State Replicated Data Types – Almeida et al. 2016"](https://arxiv.org/pdf/1603.01529.pdf) which is an anti-entropy algorithm for δ-CRDTs.
+  A Delta CRDT is made of two parts. First, the data structure itself, and second, an anti-entropy algorithm, which is responsible for ensuring convergence. `DeltaCrdt` implements Algorithm 2 from ["Delta State Replicated Data Types – Almeida et al. 2016"](https://arxiv.org/pdf/1603.01529.pdf) which is an anti-entropy algorithm for δ-CRDTs.
 
   While it is certainly interesting to have a look at this paper and spend time grokking it, in theory I've done the hard work so that you don't have to, and this library is the result.
 
-  With this library, you can build distributed applications that share some state. `Horde.Supervisor` and `Horde.Registry` are both built atop `DeltaCrdt`, but there are certainly many more possibilities.
+  With this library, you can build distributed applications that share some state. [`Horde.Supervisor`](https://hexdocs.pm/horde/Horde.Supervisor.html) and [`Horde.Registry`](https://hexdocs.pm/horde/Horde.Registry.html) are both built atop `DeltaCrdt`, but there are certainly many more possibilities.
 
-  Here's a simple example to illustrate the possibilities:
+  Here's a simple example for illustration:
 
   ```
   iex> {:ok, crdt1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 3)
@@ -21,7 +21,7 @@ defmodule DeltaCrdt do
   iex> DeltaCrdt.read(crdt1)
   %{}
   iex> DeltaCrdt.mutate(crdt1, :add, ["CRDT", "is magic!"])
-  iex> Process.sleep(10) # needed for the doctest
+  iex> Process.sleep(10) # need to wait for propagation for the doctest
   iex> DeltaCrdt.read(crdt2)
   %{"CRDT" => "is magic!"}
   ```
@@ -31,19 +31,28 @@ defmodule DeltaCrdt do
   @default_ship_interval 50
   @default_ship_debounce 50
 
-  @type operation :: {function :: atom(), arguments :: list()}
+  @type crdt_option ::
+          {:notify, {pid(), term()}}
+          | {:sync_interval, pos_integer()}
+          | {:ship_interval, pos_integer()}
+          | {:ship_debounce, pos_integer()}
+
+  @type crdt_options :: [crdt_option()]
 
   @doc """
   Start a DeltaCrdt and link it to the calling process.
 
   There are a number of options you can specify to tweak the behaviour of DeltaCrdt:
-  - `notify: {pid, msg}` - when the state of the crdt has changed, `msg` will be sent to `pid`.
-  - `sync_interval: 50` - the delta CRDT will attempt to sync its local changes with its neighbours at this interval. Default is 50.
-  - `ship_interval: 50` - the delta CRDT will notify the listener at this interval, in ms. Default is 50.
-  - `ship_debounce: 50` - debounce notify messages, in milliseconds. Default is 50.
+  - `:notify` - when the state of the CRDT has changed, `msg` will be sent to `pid`. Varying `msg` allows a single process to listen for updates from multiple CRDTs.
+  - `:sync_interval` - the delta CRDT will attempt to sync its local changes with its neighbours at this interval. Default is 50.
+  - `:ship_interval` - the delta CRDT will notify the listener at this interval, in ms. Default is 50.
+  - `:ship_debounce` - debounce notify messages, in milliseconds. Default is 50.
   """
-  @spec start_link(crdt_module :: module(), opts :: list(), genserver_opts :: list()) ::
-          GenServer.on_start()
+  @spec start_link(
+          crdt_module :: module(),
+          opts :: crdt_options(),
+          genserver_opts :: GenServer.options()
+        ) :: GenServer.on_start()
   def start_link(crdt_module, opts \\ [], genserver_opts \\ []) do
     GenServer.start_link(
       DeltaCrdt.CausalCrdt,
@@ -81,14 +90,15 @@ defmodule DeltaCrdt do
   end
 
   @doc """
-  Notify the CRDT of its neighbours.
+  Notify a CRDT of its neighbours.
 
-  This function will allow two CRDTs to communicate with each other and sync their states.
+  This function allows CRDTs to communicate with each other and sync their states.
 
-  Note: this sets up a unidirectional sync, so if you want bidirectional syncing (which is normally desirable), then you must call this function twice:
+  **Note: this sets up a unidirectional sync, so if you want bidirectional syncing (which is normally desirable), then you must call this function twice (or thrice for 3 nodes, etc):**
   ```
-  DeltaCrdt.add_neighbours(c1, [c2])
-  DeltaCrdt.add_neighbours(c2, [c1])
+  DeltaCrdt.add_neighbours(c1, [c2, c3])
+  DeltaCrdt.add_neighbours(c2, [c1, c3])
+  DeltaCrdt.add_neighbours(c3, [c1, c2])
   ```
   """
   @spec add_neighbours(crdt :: GenServer.server(), neighbours :: list(GenServer.server())) :: :ok
@@ -105,7 +115,7 @@ defmodule DeltaCrdt do
 
   To see which operations are available, see the documentation for the crdt module that was provided in `start_link/3`.
 
-  For example, AWLWWMap has a function `add` that takes 4 arguments. The last 2 arguments are supplied by DeltaCrdt internally, so you have to provide only the first two arguments: `key` and `val`. That would look like this: `DeltaCrdt.mutate(crdt, :add, ["CRDT", "is magic!"])`. This pattern is repeated for all mutation functions. Another exaple: to call `DeltaCrdt.AWLWWMap.clear`, use `DeltaCrdt.mutate(crdt, :clear, [])`.
+  For example, `DeltaCrdt.AWLWWMap` has a function `add` that takes 4 arguments. The last 2 arguments are supplied by DeltaCrdt internally, so you have to provide only the first two arguments: `key` and `val`. That would look like this: `DeltaCrdt.mutate(crdt, :add, ["CRDT", "is magic!"])`. This pattern is repeated for all mutation functions. Another exaple: to call `DeltaCrdt.AWLWWMap.clear`, use `DeltaCrdt.mutate(crdt, :clear, [])`.
   """
   def mutate(crdt, f, a)
       when is_atom(f) and is_list(a) do
