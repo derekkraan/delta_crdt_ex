@@ -95,4 +95,9 @@ defmodule AWLWWMapTest do
       end
     end
   end
+
+  describe ".start_link/2" do
+    test "starts a causal CRDT process" do
+    end
+  end
 end

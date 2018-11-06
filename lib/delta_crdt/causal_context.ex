@@ -1,4 +1,5 @@
 defmodule DeltaCrdt.CausalContext do
+  @moduledoc false
   defstruct dots: MapSet.new(),
             maxima: %{}
 
