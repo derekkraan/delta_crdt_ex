@@ -1,15 +1,13 @@
 # DeltaCrdt
-
-DeltaCrdt implements some Delta CRDTs in Elixir.
+DeltaCrdt implements some Delta CRDTs in Elixir. There is an [introductory blog post]() and the official documentation on [hexdocs.pm](https://hexdocs.pm/delta_crdt) is also very good.
 
 CRDTs currently offered include:
 - Add Wins Last Write Wins Map
 - Add Wins Set
-- Observed Remove Map
 
 Please open an issue or a pull request if you'd like to see any additional Delta CRDTs included.
 
-The following papers have been partially implemented in this library:
+The following papers have used to implement this library:
 - [`Delta State Replicated Data Types – Almeida et al. 2016`](https://arxiv.org/pdf/1603.01529.pdf)
 - [`Efficient Synchronization of State-based CRDTs – Enes et al. 2018`](https://arxiv.org/pdf/1803.02750.pdf)
 
@@ -20,33 +18,24 @@ Documentation can be found on [hexdocs.pm](https://hexdocs.pm/delta_crdt).
 Here's a short example to illustrate adding an entry to a map:
 
 ```elixir
-alias DeltaCrdt.{CausalCrdt, AWLWWMap}
-
-# start 2 GenServers to wrap a CRDT.
-{:ok, crdt} = CausalCrdt.start_link(AWLWWMap)
-{:ok, crdt2} = CausalCrdt.start_link(AWLWWMap)
+# start 2 Delta CRDTs
+{:ok, crdt1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap)
+{:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap)
 
 # make them aware of each other
-send(crdt, {:add_neighbours, [crdt2]})
-send(crdt2, {:add_neighbours, [crdt]})
+DeltaCrdt.add_neighbours(crdt1, [crdt2])
 
-# do an operation on the CRDT
-GenServer.cast(crdt, {:operation, {:add, ["CRDT", "is magic"]}})
+# show the initial value
+DeltaCrdt.read(crdt1)
+%{}
 
-# force sending intervals to neighbours
-send(crdt, :ship_interval_or_state_to_all)
+# add a key/value in crdt1
+DeltaCrdt.mutate(crdt1, :add, ["CRDT", "is magic!"])
 
-# wait a few ms to give it time to replicate
-Process.sleep(50)
-
-# read the CRDT
-CausalCrdt.read(crdt2)
-#=> %{"CRDT" => "is magic"}
+# read it after it has been replicated to crdt2
+DeltaCrdt.read(crdt2)
+%{"CRDT" => "is magic!"}
 ```
-
-## TODOs
-
-- implement join decomposition to further reduce back-propagation.
 
 ## Installation
 
@@ -55,7 +44,7 @@ The package can be installed by adding `delta_crdt` to your list of dependencies
 ```elixir
 def deps do
   [
-    {:delta_crdt, "~> 0.1.11"}
+    {:delta_crdt, "~> 0.2.0"}
   ]
 end
 ```
