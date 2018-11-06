@@ -21,7 +21,7 @@ defmodule DeltaCrdt do
   iex> DeltaCrdt.read(crdt1)
   %{}
   iex> DeltaCrdt.mutate(crdt1, :add, ["CRDT", "is magic!"])
-  iex> Process.sleep(50) # needed for the doctest
+  iex> Process.sleep(60) # needed for the doctest
   iex> DeltaCrdt.read(crdt2)
   %{"CRDT" => "is magic!"}
   ```
