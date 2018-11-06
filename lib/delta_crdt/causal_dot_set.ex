@@ -1,4 +1,6 @@
 defmodule DeltaCrdt.CausalDotSet do
+  @moduledoc false
+
   defstruct causal_context: DeltaCrdt.CausalContext.new(),
             state: MapSet.new()
 

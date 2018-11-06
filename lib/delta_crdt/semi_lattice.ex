@@ -1,4 +1,5 @@
 defprotocol DeltaCrdt.SemiLattice do
+  @moduledoc false
   @fallback_to_any true
 
   def join(semilattice1, semilattice2)

@@ -3,11 +3,6 @@ defmodule DeltaCrdt.CausalCrdt do
 
   require Logger
 
-  @default_sync_interval 50
-
-  @default_ship_interval 50
-  @default_ship_debounce 50
-
   @outstanding_ack_timeout 20_000
 
   @ship_after_x_deltas 100
@@ -16,64 +11,20 @@ defmodule DeltaCrdt.CausalCrdt do
   @type delta :: {k :: integer(), delta :: any()}
   @type delta_interval :: {a :: integer(), b :: integer(), delta :: delta()}
 
-  @moduledoc """
-  DeltaCrdt implements Algorithm 2 from `Delta State Replicated Data Types – Almeida et al. 2016`
-  which is an anti-entropy algorithm for δ-CRDTs. You can find the original paper here: https://arxiv.org/pdf/1603.01529.pdf
-  """
+  @moduledoc false
 
-  defmodule State do
-    defstruct node_id: nil,
-              notify: nil,
-              neighbours: MapSet.new(),
-              neighbour_refs: %{},
-              crdt_module: nil,
-              crdt_state: nil,
-              shipped_sequence_number: 0,
-              sequence_number: 0,
-              ship_debounce: 0,
-              deltas: %{},
-              ack_map: %{},
-              outstanding_acks: %{}
-  end
-
-  def child_spec(opts \\ []) do
-    name = Keyword.get(opts, :name, nil)
-    crdt_module = Keyword.get(opts, :crdt, nil)
-    shutdown = Keyword.get(opts, :shutdown, 5000)
-
-    if is_nil(name) do
-      raise "must specify :name in options, got: #{inspect(opts)}"
-    end
-
-    if is_nil(crdt_module) do
-      raise "must specify :crdt in options, got: #{inspect(opts)}"
-    end
-
-    %{
-      id: name,
-      start: {__MODULE__, :start_link, [crdt_module, Keyword.drop(opts, [:name]), [name: name]]},
-      shutdown: shutdown
-    }
-  end
-
-  @doc """
-  Start a DeltaCrdt.
-  """
-  def start_link(crdt_module, opts \\ [], genserver_opts \\ []) do
-    GenServer.start_link(
-      __MODULE__,
-      {crdt_module, Keyword.get(opts, :notify, nil),
-       Keyword.get(opts, :sync_interval, @default_sync_interval),
-       Keyword.get(opts, :ship_interval, @default_ship_interval),
-       Keyword.get(opts, :ship_debounce, @default_ship_debounce)},
-      genserver_opts
-    )
-  end
-
-  def read(server, timeout \\ 5000) do
-    {crdt_module, state} = GenServer.call(server, :read, timeout)
-    apply(crdt_module, :read, [state])
-  end
+  defstruct node_id: nil,
+            notify: nil,
+            neighbours: MapSet.new(),
+            neighbour_refs: %{},
+            crdt_module: nil,
+            crdt_state: nil,
+            shipped_sequence_number: 0,
+            sequence_number: 0,
+            ship_debounce: 0,
+            deltas: %{},
+            ack_map: %{},
+            outstanding_acks: %{}
 
   ### GenServer callbacks
 
@@ -85,7 +36,7 @@ defmodule DeltaCrdt.CausalCrdt do
     Process.flag(:trap_exit, true)
 
     {:ok,
-     %State{
+     %__MODULE__{
        node_id: :rand.uniform(1_000_000_000),
        notify: notify,
        crdt_module: crdt_module,

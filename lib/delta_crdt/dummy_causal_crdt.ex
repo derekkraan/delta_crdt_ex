@@ -1,4 +1,5 @@
 defmodule DeltaCrdt.DummyCausalCrdt do
+  @moduledoc false
   alias DeltaCrdt.CausalContext
 
   defstruct causal_context: CausalContext.new(),

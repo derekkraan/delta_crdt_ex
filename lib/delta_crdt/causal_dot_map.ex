@@ -1,4 +1,7 @@
 defmodule DeltaCrdt.CausalDotMap do
+  @moduledoc false
+
+  @opaque t :: %__MODULE__{}
   defstruct causal_context: DeltaCrdt.CausalContext.new(),
             keys: MapSet.new(),
             state: %{}

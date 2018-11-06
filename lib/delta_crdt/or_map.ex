@@ -1,4 +1,6 @@
 defmodule DeltaCrdt.ORMap do
+  @moduledoc false
+
   alias DeltaCrdt.{CausalDotMap, DummyCausalCrdt, CausalContext, DotStore}
 
   def apply({m, f, a}, key, i, %CausalDotMap{} = map) do

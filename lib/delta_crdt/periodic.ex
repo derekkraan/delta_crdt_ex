@@ -1,6 +1,8 @@
 defmodule DeltaCrdt.Periodic do
   use GenServer
 
+  @moduledoc false
+
   def start_link(message, interval) do
     parent = self()
     GenServer.start_link(__MODULE__, {parent, message, interval})

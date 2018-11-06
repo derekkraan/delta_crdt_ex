@@ -1,4 +1,10 @@
 defmodule DeltaCrdt.AWSet do
+  @moduledoc """
+  An add-wins set.
+
+  This CRDT represents a set with add-wins semantics. So in the event of a conflict between an add and a remove operation, the add operation will win and the element will remain in the set.
+  """
+
   def new(), do: %DeltaCrdt.CausalDotMap{}
 
   def add(element, i, %{causal_context: c}) do
