@@ -7,7 +7,7 @@ CRDTs currently offered include:
 
 Please open an issue or a pull request if you'd like to see any additional Delta CRDTs included.
 
-The following papers have used to implement this library:
+The following papers have been used to implement this library:
 - [`Delta State Replicated Data Types – Almeida et al. 2016`](https://arxiv.org/pdf/1603.01529.pdf)
 - [`Efficient Synchronization of State-based CRDTs – Enes et al. 2018`](https://arxiv.org/pdf/1803.02750.pdf)
 
