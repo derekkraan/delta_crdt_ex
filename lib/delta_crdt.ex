@@ -82,9 +82,7 @@ defmodule DeltaCrdt do
 
     %{
       id: name,
-      start:
-        {DeltaCrdt.CausalCrdt, :start_link,
-         [crdt_module, Keyword.drop(opts, [:name]), [name: name]]},
+      start: {DeltaCrdt, :start_link, [crdt_module, Keyword.drop(opts, [:name]), [name: name]]},
       shutdown: shutdown
     }
   end
