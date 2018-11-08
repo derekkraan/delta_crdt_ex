@@ -105,7 +105,12 @@ defmodule DeltaCrdt do
     :ok
   end
 
-  @spec mutate(crdt :: GenServer.server(), function :: atom, arguments :: list()) :: :ok
+  @spec mutate(
+          crdt :: GenServer.server(),
+          function :: atom,
+          arguments :: list(),
+          timeout :: pos_integer()
+        ) :: :ok
   @doc """
   Mutate the CRDT synchronously.
 
@@ -115,9 +120,9 @@ defmodule DeltaCrdt do
 
   For example, `DeltaCrdt.AWLWWMap` has a function `add` that takes 4 arguments. The last 2 arguments are supplied by DeltaCrdt internally, so you have to provide only the first two arguments: `key` and `val`. That would look like this: `DeltaCrdt.mutate(crdt, :add, ["CRDT", "is magic!"])`. This pattern is repeated for all mutation functions. Another exaple: to call `DeltaCrdt.AWLWWMap.clear`, use `DeltaCrdt.mutate(crdt, :clear, [])`.
   """
-  def mutate(crdt, f, a)
+  def mutate(crdt, f, a, timeout \\ 5000)
       when is_atom(f) and is_list(a) do
-    GenServer.call(crdt, {:operation, {f, a}})
+    GenServer.call(crdt, {:operation, {f, a}}, timeout)
   end
 
   @spec mutate_async(crdt :: GenServer.server(), function :: atom, arguments :: list()) :: :ok
