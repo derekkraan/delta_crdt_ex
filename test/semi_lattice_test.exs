@@ -46,6 +46,38 @@ defmodule SemiLatticeTest do
       end
     end
 
+    property "can calculate join decomposition of a delta" do
+      check all operations <- list_of(AWLWWMapProperty.random_operation(), min_length: 10) do
+        {ops1, ops2} = Enum.split(operations, 5)
+
+        half_state =
+          Enum.reduce(ops1, AWLWWMap.new(), fn op, st ->
+            delta = op.(st)
+            SemiLattice.join(st, delta)
+          end)
+          |> SemiLattice.compress()
+
+        total_delta =
+          Enum.reduce(operations, AWLWWMap.new(), fn operation, state ->
+            delta = operation.(state)
+            SemiLattice.join(state, delta)
+          end)
+
+        minimum_delta =
+          AWLWWMap.join_decomposition(total_delta)
+          |> Enum.filter(fn delta -> AWLWWMap.strict_expansion?(half_state, delta) end)
+
+        # IO.inspect({Enum.count(operations), Enum.count(minimum_delta)})
+        # IO.inspect({half_state, minimum_delta})
+
+        assert Enum.count(minimum_delta) <= Enum.count(operations) - 5
+
+        state_from_min_delta = Enum.reduce([half_state | minimum_delta], &SemiLattice.join/2)
+
+        assert AWLWWMap.read(total_delta) == AWLWWMap.read(state_from_min_delta)
+      end
+    end
+
     @tag :skip
     property "can calculate partial minimum delta" do
       op =

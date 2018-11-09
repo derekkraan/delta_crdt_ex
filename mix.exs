@@ -6,6 +6,7 @@ defmodule DeltaCrdt.MixProject do
       app: :delta_crdt,
       version: "0.2.1",
       elixir: "~> 1.6",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       package: package(),
       deps: deps()
@@ -38,4 +39,7 @@ defmodule DeltaCrdt.MixProject do
       links: %{GitHub: "https://github.com/derekkraan/delta_crdt_ex"}
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 end
