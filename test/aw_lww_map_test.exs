@@ -106,7 +106,7 @@ defmodule AWLWWMapTest do
       check all {half_state, full_delta} <- AWLWWMapProperty.half_state_full_delta() do
         minimum_delta = AWLWWMap.minimum_deltas(half_state, full_delta)
 
-        assert Enum.count(minimum_delta) < 15
+        assert Enum.count(minimum_delta) <= 15
 
         state_from_min_delta = Enum.reduce([half_state | minimum_delta], &SemiLattice.join/2)
 
