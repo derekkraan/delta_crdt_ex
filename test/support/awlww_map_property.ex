@@ -18,30 +18,19 @@ defmodule AWLWWMapProperty do
   end
 
   def random_operation do
-    ExUnitProperties.gen all add <- add_operation(),
-                             remove <- remove_operation() do
-      Enum.random([add, remove])
-    end
-  end
+    ExUnitProperties.gen all operation <- one_of([:add, :remove]),
+                             key <- binary(),
+                             val <- binary(),
+                             node_id <- integer() do
+      case operation do
+        :add ->
+          fn
+            state -> AWLWWMap.add(key, val, node_id, state)
+          end
 
-  def half_state_full_delta do
-    ExUnitProperties.gen all ops <- list_of(random_operation(), length: 30) do
-      {ops1, ops2} = Enum.split(ops, 15)
-
-      half_state =
-        Enum.reduce(ops1, AWLWWMap.new(), fn op, st ->
-          delta = op.(st)
-          SemiLattice.join(st, delta)
-        end)
-        |> SemiLattice.compress()
-
-      full_delta =
-        Enum.reduce(ops, AWLWWMap.new(), fn op, st ->
-          delta = op.(st)
-          SemiLattice.join(st, delta)
-        end)
-
-      {half_state, full_delta}
+        :remove ->
+          fn state -> AWLWWMap.remove(key, node_id, state) end
+      end
     end
   end
 end

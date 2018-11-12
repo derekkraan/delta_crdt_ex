@@ -101,20 +101,6 @@ defmodule AWLWWMapTest do
     end
   end
 
-  describe ".minimum_deltas/2" do
-    property "can calculate minimum delta from state and delta" do
-      check all {half_state, full_delta} <- AWLWWMapProperty.half_state_full_delta() do
-        minimum_delta = AWLWWMap.minimum_deltas(half_state, full_delta)
-
-        assert Enum.count(minimum_delta) <= 15
-
-        state_from_min_delta = Enum.reduce([half_state | minimum_delta], &SemiLattice.join/2)
-
-        assert AWLWWMap.read(full_delta) == AWLWWMap.read(state_from_min_delta)
-      end
-    end
-  end
-
   describe ".join_decomposition/1" do
     property "join decomposition has one dot per decomposed delta" do
       check all ops <- list_of(AWLWWMapProperty.random_operation()) do
