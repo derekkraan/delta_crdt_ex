@@ -148,20 +148,20 @@ defmodule DeltaCrdt.CausalCrdt do
       send(neighbour, {:ack, self_reference, n})
 
       new_state =
-        case DeltaCrdt.SemiLattice.minimum_delta(state.crdt_state, delta_interval) do
-          {_new_crdt_state, :bottom} ->
+        case state.crdt_module.minimum_deltas(state.crdt_state, delta_interval) do
+          [] ->
             state
 
-          {new_crdt_state, minimum_delta} ->
-            new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, minimum_delta})
+          minimum_deltas ->
+            delta = Enum.reduce(minimum_deltas, &DeltaCrdt.SemiLattice.join/2)
+
+            new_crdt_state = DeltaCrdt.SemiLattice.join(state.crdt_state, delta)
+            new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, delta})
             new_sequence_number = state.sequence_number + 1
 
-            %{
-              state
-              | crdt_state: new_crdt_state,
-                deltas: new_deltas,
-                sequence_number: new_sequence_number
-            }
+            Map.put(state, :deltas, new_deltas)
+            |> Map.put(:crdt_state, new_crdt_state)
+            |> Map.put(:sequence_number, new_sequence_number)
         end
 
       {:noreply, new_state}
@@ -273,13 +273,15 @@ defmodule DeltaCrdt.CausalCrdt do
   defp handle_operation({function, args}, state) do
     delta = apply(state.crdt_module, function, args ++ [state.node_id, state.crdt_state])
 
-    case DeltaCrdt.SemiLattice.minimum_delta(state.crdt_state, delta) do
-      {_new_crdt_state, :bottom} ->
+    case state.crdt_module.minimum_deltas(state.crdt_state, delta) do
+      [] ->
         state
 
-      {new_crdt_state, minimum_delta} ->
-        new_deltas = Map.put(state.deltas, state.sequence_number, {self(), minimum_delta})
+      minimum_deltas ->
+        delta = Enum.reduce(minimum_deltas, &DeltaCrdt.SemiLattice.join/2)
 
+        new_crdt_state = DeltaCrdt.SemiLattice.join(state.crdt_state, delta)
+        new_deltas = Map.put(state.deltas, state.sequence_number, {self(), delta})
         new_sequence_number = state.sequence_number + 1
 
         Map.put(state, :deltas, new_deltas)

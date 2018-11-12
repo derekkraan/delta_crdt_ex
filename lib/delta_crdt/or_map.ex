@@ -26,7 +26,7 @@ defmodule DeltaCrdt.ORMap do
     val = Map.get(map.state, key, DummyCausalCrdt.new())
 
     %CausalDotMap{
-      state: :bottom,
+      state: %{},
       causal_context: DotStore.dots(val) |> CausalContext.new(),
       keys: MapSet.new([key])
     }
