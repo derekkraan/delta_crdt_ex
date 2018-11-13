@@ -7,7 +7,7 @@ defmodule DeltaCrdt.AWSet do
 
   def new(), do: %DeltaCrdt.CausalDotMap{}
 
-  def add(element, i, %{causal_context: c, state: map} = a) do
+  def add(element, i, %{causal_context: c, state: map}) do
     {next_dot, _new_c} = DeltaCrdt.CausalContext.next(c, i)
 
     causal_context =
