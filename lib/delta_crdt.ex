@@ -6,7 +6,7 @@ defmodule DeltaCrdt do
 
   Normal CRDTs (otherwise called "state CRDTs") require transmission of the entire CRDT state with every change. This clearly doesn't scale, but there has been exciting research in the last few years into "Delta CRDTs", CRDTs that only transmit their deltas. This has enabled a whole new scale of applications for CRDTs, and it's also what this library is based on.
 
-  A Delta CRDT is made of two parts. First, the data structure itself, and second, an anti-entropy algorithm, which is responsible for ensuring convergence. `DeltaCrdt` implements Algorithm 2 from ["Delta State Replicated Data Types – Almeida et al. 2016"](https://arxiv.org/pdf/1603.01529.pdf) which is an anti-entropy algorithm for δ-CRDTs.
+  A Delta CRDT is made of two parts. First, the data structure itself, and second, an anti-entropy algorithm, which is responsible for ensuring convergence. `DeltaCrdt` implements Algorithm 2 from ["Delta State Replicated Data Types – Almeida et al. 2016"](https://arxiv.org/pdf/1603.01529.pdf) which is an anti-entropy algorithm for δ-CRDTs. `DeltaCrdt` also implements join decomposition to ensure that deltas aren't transmitted unnecessarily in the cluster.
 
   While it is certainly interesting to have a look at this paper and spend time grokking it, in theory I've done the hard work so that you don't have to, and this library is the result.
 
