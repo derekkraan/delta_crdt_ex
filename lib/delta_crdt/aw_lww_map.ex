@@ -59,24 +59,43 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def strict_expansion?(state, delta) do
+    case DeltaCrdt.SemiLattice.bottom?(delta) do
+      true ->
+        check_remove_expansion(state, delta)
+
+      false ->
+        check_add_expansion(state, delta)
+    end
+  end
+
+  defp check_add_expansion(state, delta) do
+    case MapSet.to_list(delta.causal_context.dots) do
+      [] ->
+        false
+
+      [{x, y}] ->
+        Map.get(state.causal_context.maxima, x, -1) < y
+    end
+  end
+
+  defp check_remove_expansion(state, delta) do
     case MapSet.to_list(delta.causal_context.dots) do
       [] ->
         false
 
       [dot] ->
-        !MapSet.member?(state.causal_context.dots, dot) ||
-          (DeltaCrdt.SemiLattice.bottom?(delta) &&
-             Enum.any?(state.state, fn {_key, dot_map} ->
-               Enum.any?(dot_map.state, fn {_key, %{state: dot_set}} ->
-                 MapSet.member?(dot_set, dot)
-               end)
-             end))
+        Enum.filter(state.state, fn {key, _map} -> MapSet.member?(delta.keys, key) end)
+        |> Enum.any?(fn {_key, dot_map} ->
+          Enum.any?(dot_map.state, fn {_key, %{state: dot_set}} ->
+            MapSet.member?(dot_set, dot)
+          end)
+        end)
     end
   end
 
   def join_decomposition(delta) do
     Enum.map(delta.causal_context.dots, fn dot ->
-      Enum.find(delta.state, fn {key, dot_map} ->
+      Enum.find(delta.state, fn {_key, dot_map} ->
         Enum.find(dot_map.state, fn {_key, %{state: state}} ->
           MapSet.member?(state, dot)
         end)
