@@ -100,4 +100,62 @@ defmodule AWLWWMapTest do
     test "starts a causal CRDT process" do
     end
   end
+
+  describe ".join_decomposition/1" do
+    property "join decomposition has one dot per decomposed delta" do
+      check all ops <- list_of(AWLWWMapProperty.random_operation()) do
+        # make 1 delta
+        joined_delta =
+          Enum.reduce(ops, AWLWWMap.new(), fn op, st ->
+            delta = op.(st)
+            SemiLattice.join(st, delta)
+          end)
+
+        # decompose delta
+        decomposed_ops = AWLWWMap.join_decomposition(joined_delta)
+
+        Enum.each(decomposed_ops, fn op ->
+          assert 1 = MapSet.size(op.causal_context.dots)
+        end)
+      end
+    end
+
+    property "join decomposition when joined returns itself" do
+      check all ops <- list_of(AWLWWMapProperty.random_operation()) do
+        joined_delta =
+          Enum.reduce(ops, AWLWWMap.new(), fn op, st ->
+            delta = op.(st)
+            SemiLattice.join(st, delta)
+          end)
+
+        decomposed_ops = AWLWWMap.join_decomposition(joined_delta)
+
+        rejoined_delta = Enum.reduce(decomposed_ops, AWLWWMap.new(), &SemiLattice.join/2)
+
+        assert Map.equal?(AWLWWMap.read(rejoined_delta), AWLWWMap.read(joined_delta))
+      end
+    end
+  end
+
+  describe ".strict_expansion?/2" do
+    property "no operation is a strict expansion of itself" do
+      check all op <- AWLWWMapProperty.random_operation() do
+        op = op.(AWLWWMap.new())
+
+        assert false == AWLWWMap.strict_expansion?(op, op)
+      end
+    end
+
+    property "operation can be applied and then is no longer strict expansion" do
+      check all [op1, op2] <- list_of(AWLWWMapProperty.random_operation(), length: 2) do
+        op1 = op1.(AWLWWMap.new())
+        op2 = op2.(op1)
+        state = SemiLattice.join(op1, op2)
+
+        Enum.each(AWLWWMap.join_decomposition(op2), fn op ->
+          assert false == AWLWWMap.strict_expansion?(state, op)
+        end)
+      end
+    end
+  end
 end
