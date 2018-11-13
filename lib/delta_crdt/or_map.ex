@@ -34,7 +34,7 @@ defmodule DeltaCrdt.ORMap do
 
   def clear(_i, %CausalDotMap{} = map) do
     %CausalDotMap{
-      state: :bottom,
+      state: %{},
       causal_context: DotStore.dots(map) |> CausalContext.new(),
       keys: map.keys
     }
