@@ -220,19 +220,25 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, %{state | outstanding_acks: new_outstanding_acks}}
   end
 
+  def handle_call(:delta_count, _from, state) do
+    {:reply, Enum.count(state.deltas), state}
+  end
+
   def handle_call(:garbage_collect_deltas, _from, state) do
     compressed_crdt_state = DeltaCrdt.SemiLattice.compress(state.crdt_state)
     pid = self()
 
-    if Enum.empty?(state.neighbours) do
-      {:noreply, %{state | crdt_state: compressed_crdt_state}}
+    neighbours =
+      Enum.filter(state.neighbours, fn
+        ^pid -> false
+        _ -> true
+      end)
+
+    if Enum.empty?(neighbours) do
+      {:reply, :ok, %{state | deltas: %{}, crdt_state: compressed_crdt_state}}
     else
       l =
         state.neighbours
-        |> Enum.filter(fn
-          ^pid -> false
-          _ -> true
-        end)
         |> Enum.filter(fn neighbour -> Map.has_key?(state.ack_map, neighbour) end)
         |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
         |> Enum.min(fn -> 0 end)

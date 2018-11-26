@@ -14,9 +14,9 @@ defmodule CausalCrdtTest do
     {:ok, c3} =
       DeltaCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
 
-    DeltaCrdt.add_neighbours(c1, [c2, c3])
-    DeltaCrdt.add_neighbours(c2, [c1, c3])
-    DeltaCrdt.add_neighbours(c3, [c2, c1])
+    DeltaCrdt.add_neighbours(c1, [c1, c2, c3])
+    DeltaCrdt.add_neighbours(c2, [c1, c2, c3])
+    DeltaCrdt.add_neighbours(c3, [c1, c2, c3])
     [c1: c1, c2: c2, c3: c3]
   end
 
@@ -25,6 +25,34 @@ defmodule CausalCrdtTest do
     DeltaCrdt.mutate_async(context.c1, :add, [:Tonci, "Galic"])
 
     assert %{"Derek" => "Kraan", Tonci: "Galic"} == DeltaCrdt.read(context.c1)
+  end
+
+  test "garbage collection removes deltas", context do
+    DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "Kraan"])
+
+    Process.sleep(60)
+
+    assert %{"Derek" => "Kraan"} == DeltaCrdt.read(context.c2)
+    assert %{"Derek" => "Kraan"} == DeltaCrdt.read(context.c3)
+
+    GenServer.call(context.c1, :garbage_collect_deltas)
+    GenServer.call(context.c2, :garbage_collect_deltas)
+    GenServer.call(context.c3, :garbage_collect_deltas)
+
+    assert 0 = GenServer.call(context.c1, :delta_count)
+    assert 0 = GenServer.call(context.c2, :delta_count)
+    assert 0 = GenServer.call(context.c3, :delta_count)
+  end
+
+  test "garbage collection works in case of just 1 node" do
+    {:ok, c1} =
+      DeltaCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
+
+    DeltaCrdt.add_neighbours(c1, [c1])
+
+    DeltaCrdt.mutate_async(c1, :add, ["Derek", "Kraan"])
+    GenServer.call(c1, :garbage_collect_deltas)
+    assert 0 = GenServer.call(c1, :delta_count)
   end
 
   test "conflicting updates resolve", context do
