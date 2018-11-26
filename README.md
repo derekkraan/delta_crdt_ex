@@ -1,4 +1,7 @@
 # DeltaCrdt
+
+[![Hex pm](http://img.shields.io/hexpm/v/delta_crdt.svg?style=flat)](https://hex.pm/packages/delta_crdt) [![CircleCI badge](https://circleci.com/gh/derekkraan/delta_crdt_ex.png?circle-token=:circle-token)](https://circleci.com/gh/derekkraan/delta_crdt_ex)
+
 DeltaCrdt implements some Delta CRDTs in Elixir. There is an [introductory blog post]() and the official documentation on [hexdocs.pm](https://hexdocs.pm/delta_crdt) is also very good.
 
 CRDTs currently offered include:
