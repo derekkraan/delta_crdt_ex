@@ -53,6 +53,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defp resolve_neighbour({_name, _node_ref} = ref), do: GenServer.whereis(ref)
 
+  defp sync_state_to_neighbour(neighbour, _state) when neighbour == self(), do: nil
+
   defp sync_state_to_neighbour(neighbour, state) do
     remote_acked = Map.get(state.ack_map, neighbour, 0)
 
@@ -220,12 +222,17 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_call(:garbage_collect_deltas, _from, state) do
     compressed_crdt_state = DeltaCrdt.SemiLattice.compress(state.crdt_state)
+    pid = self()
 
     if Enum.empty?(state.neighbours) do
       {:noreply, %{state | crdt_state: compressed_crdt_state}}
     else
       l =
         state.neighbours
+        |> Enum.filter(fn
+          ^pid -> false
+          _ -> true
+        end)
         |> Enum.filter(fn neighbour -> Map.has_key?(state.ack_map, neighbour) end)
         |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
         |> Enum.min(fn -> 0 end)
