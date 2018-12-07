@@ -124,6 +124,8 @@ defmodule DeltaCrdt.CausalCrdt do
         {pid, neighbour_refs} ->
           Map.put(state, :neighbour_refs, neighbour_refs)
           |> Map.put(:neighbours, MapSet.delete(state.neighbours, pid))
+          |> Map.put(:ack_map, Map.delete(state.ack_map, pid))
+          |> Map.put(:outstanding_acks, Map.delete(state.outstanding_acks, pid))
       end
 
     {:noreply, new_state}
