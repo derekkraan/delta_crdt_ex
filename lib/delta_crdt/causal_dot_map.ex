@@ -66,13 +66,14 @@ defimpl DeltaCrdt.SemiLattice, for: DeltaCrdt.CausalDotMap do
     %DeltaCrdt.CausalDotMap{causal_context: new_causal_context, state: new_state, keys: all_keys}
   end
 
-  def compress(map) do
-    %{
-      map
-      | causal_context: DeltaCrdt.CausalContext.compress(map.causal_context),
-        keys: MapSet.new(Map.keys(map.state))
-    }
-  end
+  def compress(map), do: map
+  # def compress(map) do
+  #   %{
+  #     map
+  #     | causal_context: DeltaCrdt.CausalContext.compress(map.causal_context),
+  #       keys: MapSet.new(Map.keys(map.state))
+  #   }
+  # end
 
   def bottom?(map) do
     Enum.empty?(map.state)

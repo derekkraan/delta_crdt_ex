@@ -59,7 +59,11 @@ defmodule DeltaCrdt.CausalCrdt do
     remote_acked = Map.get(state.ack_map, neighbour, 0)
 
     if Enum.min(Map.keys(state.deltas), fn -> state.sequence_number end) > remote_acked do
-      send(neighbour, {:delta, {self(), neighbour, state.crdt_state}, state.sequence_number})
+      send(
+        neighbour,
+        {:delta, {self(), neighbour, state.crdt_state}, state.sequence_number}
+      )
+
       {neighbour, state.sequence_number}
     else
       neighbour_pid = resolve_neighbour(neighbour)
@@ -115,6 +119,16 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
 
+  ### this function is only used for testing purposes.
+  def handle_info(:forget_neighbours, state) do
+    new_state =
+      Enum.reduce(state.neighbour_refs, state, fn {_ref, pid}, state ->
+        forget_neighbour(state, pid)
+      end)
+
+    {:noreply, new_state}
+  end
+
   def handle_info({:DOWN, ref, :process, _object, _reason}, state) do
     new_state =
       case Map.pop(state.neighbour_refs, ref) do
@@ -123,7 +137,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
         {pid, neighbour_refs} ->
           Map.put(state, :neighbour_refs, neighbour_refs)
-          |> Map.put(:neighbours, MapSet.delete(state.neighbours, pid))
+          |> forget_neighbour(pid)
       end
 
     {:noreply, new_state}
@@ -140,36 +154,18 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, %{state | outstanding_acks: outstanding_acks}}
   end
 
-  def handle_info(
-        {:delta,
-         {neighbour, self_reference, %{state: _d_s, causal_context: delta_c} = delta_interval},
-         n},
-        %{crdt_state: %{state: _s, causal_context: c}} = state
-      ) do
-    if DeltaCrdt.AntiEntropy.is_strict_expansion(c, delta_c) do
-      send(neighbour, {:ack, self_reference, n})
+  def handle_info({:delta, {neighbour, self_ref, delta_interval}, n}, state) do
+    %{causal_context: delta_c} = delta_interval
+    %{crdt_state: %{causal_context: c}} = state
 
-      new_state =
-        case state.crdt_module.minimum_deltas(state.crdt_state, delta_interval) do
-          [] ->
-            state
+    if(DeltaCrdt.AntiEntropy.is_strict_expansion(c, delta_c)) do
+      send(neighbour, {:ack, self_ref, n})
 
-          minimum_deltas ->
-            delta = Enum.reduce(minimum_deltas, &DeltaCrdt.SemiLattice.join/2)
-
-            new_crdt_state = DeltaCrdt.SemiLattice.join(state.crdt_state, delta)
-            new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, delta})
-            new_sequence_number = state.sequence_number + 1
-
-            Map.put(state, :deltas, new_deltas)
-            |> Map.put(:crdt_state, new_crdt_state)
-            |> Map.put(:sequence_number, new_sequence_number)
-        end
-
+      new_state = apply_delta_interval(state, neighbour, delta_interval)
       {:noreply, new_state}
     else
       Logger.debug(fn ->
-        "not applying delta interval from #{inspect(neighbour)} because delta interval is not a strict expansion"
+        "not applying delta interval #{inspect({c, delta_c})} from #{inspect(neighbour)} because delta interval is not a strict expansion"
       end)
 
       {:noreply, state}
@@ -295,6 +291,30 @@ defmodule DeltaCrdt.CausalCrdt do
 
         new_crdt_state = DeltaCrdt.SemiLattice.join(state.crdt_state, delta)
         new_deltas = Map.put(state.deltas, state.sequence_number, {self(), delta})
+        new_sequence_number = state.sequence_number + 1
+
+        Map.put(state, :deltas, new_deltas)
+        |> Map.put(:crdt_state, new_crdt_state)
+        |> Map.put(:sequence_number, new_sequence_number)
+    end
+  end
+
+  defp forget_neighbour(state, pid) do
+    Map.put(state, :neighbours, MapSet.delete(state.neighbours, pid))
+    |> Map.put(:ack_map, Map.delete(state.ack_map, pid))
+    |> Map.put(:outstanding_acks, Map.delete(state.outstanding_acks, pid))
+  end
+
+  defp apply_delta_interval(state, neighbour, delta_interval) do
+    case state.crdt_module.minimum_deltas(state.crdt_state, delta_interval) do
+      [] ->
+        state
+
+      minimum_deltas ->
+        delta = Enum.reduce(minimum_deltas, &DeltaCrdt.SemiLattice.join/2)
+
+        new_crdt_state = DeltaCrdt.SemiLattice.join(state.crdt_state, delta)
+        new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, delta})
         new_sequence_number = state.sequence_number + 1
 
         Map.put(state, :deltas, new_deltas)

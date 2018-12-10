@@ -92,4 +92,42 @@ defmodule CausalCrdtTest do
     Process.sleep(100)
     assert %{} = DeltaCrdt.read(c1)
   end
+
+  test "can sync after network partition" do
+    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
+    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
+    DeltaCrdt.add_neighbours(c1, [c2])
+    DeltaCrdt.add_neighbours(c2, [c1])
+    DeltaCrdt.mutate(c1, :add, ["CRDT1", "represent"])
+    DeltaCrdt.mutate(c2, :add, ["CRDT2", "also here"])
+    Process.sleep(100)
+    assert %{"CRDT1" => "represent", "CRDT2" => "also here"} = DeltaCrdt.read(c1)
+
+    # uncouple them
+    send(c1, :forget_neighbours)
+    send(c2, :forget_neighbours)
+
+    DeltaCrdt.mutate(c1, :add, ["CRDTa", "only present in 1"])
+    DeltaCrdt.mutate(c1, :add, ["CRDTb", "only present in 1"])
+    DeltaCrdt.mutate(c1, :remove, ["CRDT1"])
+
+    Process.sleep(100)
+
+    assert Map.has_key?(DeltaCrdt.read(c1), "CRDTa")
+    refute Map.has_key?(DeltaCrdt.read(c2), "CRDTa")
+
+    GenServer.call(c1, :garbage_collect_deltas)
+    GenServer.call(c2, :garbage_collect_deltas)
+
+    # make them neighbours again
+    DeltaCrdt.add_neighbours(c1, [c2])
+    DeltaCrdt.add_neighbours(c2, [c1])
+
+    Process.sleep(1000)
+
+    assert Map.has_key?(DeltaCrdt.read(c1), "CRDTa")
+    refute Map.has_key?(DeltaCrdt.read(c1), "CRDT1")
+    assert Map.has_key?(DeltaCrdt.read(c2), "CRDTa")
+    refute Map.has_key?(DeltaCrdt.read(c2), "CRDT1")
+  end
 end
