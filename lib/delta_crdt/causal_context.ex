@@ -41,7 +41,8 @@ defmodule DeltaCrdt.CausalContext do
     %__MODULE__{dots: new_dots, maxima: new_maxima}
   end
 
-  def compress(%__MODULE__{} = cc) do
-    %{cc | dots: MapSet.new(cc.maxima)}
-  end
+  def compress(cc), do: cc
+  # def compress(%__MODULE__{} = cc) do
+  #   %{cc | dots: MapSet.new(cc.maxima)}
+  # end
 end

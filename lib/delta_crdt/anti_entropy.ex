@@ -11,8 +11,11 @@ defmodule DeltaCrdt.AntiEntropy do
 
     Enum.all?(first_new_states, fn {n, first} ->
       case Map.get(last_known_states, n) do
-        nil -> true
-        last -> first <= last + 1
+        nil ->
+          true
+
+        last ->
+          first <= last + 1
       end
     end)
   end
