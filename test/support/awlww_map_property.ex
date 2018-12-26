@@ -1,6 +1,6 @@
 defmodule AWLWWMapProperty do
   use ExUnitProperties
-  alias DeltaCrdt.{AWLWWMap, SemiLattice}
+  alias DeltaCrdt.{AWLWWMap}
 
   def add_operation do
     ExUnitProperties.gen all key <- binary(),
