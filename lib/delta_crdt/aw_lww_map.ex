@@ -94,13 +94,16 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def join_decomposition(delta) do
-    Enum.map(delta.causal_context.dots, fn dot ->
-      Enum.find(delta.state, fn {_key, dot_map} ->
-        Enum.find(dot_map.state, fn {_key, %{state: state}} ->
-          MapSet.member?(state, dot)
+    dots_to_deltas =
+      Enum.flat_map(delta.state, fn {key, dot_map} ->
+        Enum.flat_map(dot_map.state, fn {_key, %{state: dots}} ->
+          Enum.map(dots, fn dot -> {dot, key} end)
         end)
       end)
-      |> case do
+      |> Map.new()
+
+    Enum.map(delta.causal_context.dots, fn dot ->
+      case Map.get(dots_to_deltas, dot) do
         nil ->
           %DeltaCrdt.CausalDotMap{
             causal_context: DeltaCrdt.CausalContext.new([dot]),
@@ -108,7 +111,9 @@ defmodule DeltaCrdt.AWLWWMap do
             keys: delta.keys
           }
 
-        {key, dots} ->
+        key ->
+          dots = Map.get(delta.state, key)
+
           %DeltaCrdt.CausalDotMap{
             causal_context: DeltaCrdt.CausalContext.new([dot]),
             state: %{key => dots},
