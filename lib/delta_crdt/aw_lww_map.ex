@@ -59,16 +59,20 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def strict_expansion?(state, delta) do
+    strict_expansion?(state, delta, all_dots(state))
+  end
+
+  def strict_expansion?(state, delta, dots) do
     case DeltaCrdt.SemiLattice.bottom?(delta) do
       true ->
-        check_remove_expansion(state, delta)
+        check_remove_expansion(state, dots, delta)
 
       false ->
-        check_add_expansion(state, delta)
+        check_add_expansion(state, dots, delta)
     end
   end
 
-  defp check_add_expansion(state, delta) do
+  defp check_add_expansion(state, _dots, delta) do
     case MapSet.to_list(delta.causal_context.dots) do
       [] ->
         false
@@ -78,18 +82,13 @@ defmodule DeltaCrdt.AWLWWMap do
     end
   end
 
-  defp check_remove_expansion(state, delta) do
+  defp check_remove_expansion(state, dots, delta) do
     case MapSet.to_list(delta.causal_context.dots) do
       [] ->
         false
 
       [dot] ->
-        Enum.filter(state.state, fn {key, _map} -> MapSet.member?(delta.keys, key) end)
-        |> Enum.any?(fn {_key, dot_map} ->
-          Enum.any?(dot_map.state, fn {_key, %{state: dot_set}} ->
-            MapSet.member?(dot_set, dot)
-          end)
-        end)
+        MapSet.member?(dots, dot)
     end
   end
 
@@ -123,8 +122,18 @@ defmodule DeltaCrdt.AWLWWMap do
     end)
   end
 
+  defp all_dots(%{state: state}) do
+    Enum.reduce(state, MapSet.new(), fn {_key, dot_map}, dots ->
+      Enum.reduce(dot_map.state, dots, fn {_key, %{state: new_dots}}, dots ->
+        MapSet.union(dots, MapSet.new(new_dots))
+      end)
+    end)
+  end
+
   def minimum_deltas(state, delta) do
+    dots = all_dots(state)
+
     join_decomposition(delta)
-    |> Enum.filter(fn d -> strict_expansion?(state, d) end)
+    |> Enum.filter(fn d -> strict_expansion?(state, d, dots) end)
   end
 end

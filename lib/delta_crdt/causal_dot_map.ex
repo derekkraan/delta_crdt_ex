@@ -19,8 +19,7 @@ end
 
 defimpl DeltaCrdt.SemiLattice, for: DeltaCrdt.CausalDotMap do
   defp convert_bottom(%{state: :bottom} = map) do
-    Map.put(map, :state, %{})
-    |> Map.put_new(:keys, MapSet.new())
+    Map.merge(%DeltaCrdt.CausalDotMap{}, Map.put(map, :state, %{}))
   end
 
   defp convert_bottom(map), do: map
