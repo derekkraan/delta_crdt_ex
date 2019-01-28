@@ -2,6 +2,8 @@ defmodule NewAWLWWMapTest do
   use ExUnit.Case
   use ExUnitProperties
 
+  alias DeltaCrdt.AWLWWMap
+
   test "can add and read a value" do
     assert %{1 => 2} =
              AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
@@ -37,6 +39,19 @@ defmodule NewAWLWWMapTest do
     assert %{1 => 3} =
              AWLWWMap.join(add1, add2)
              |> AWLWWMap.read()
+  end
+
+  test "can compute minimum deltas" do
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    change1 = AWLWWMap.add(1, 3, :foo_node, add1)
+    remove1 = AWLWWMap.remove(1, :foo_node, add1)
+    remove2 = AWLWWMap.remove(2, :foo_node, add1)
+
+    assert [] = AWLWWMap.minimum_deltas(add1, add1)
+    assert [change1] = AWLWWMap.minimum_deltas(change1, add1)
+
+    assert [remove1] = AWLWWMap.minimum_deltas(remove1, add1)
+    assert [] = AWLWWMap.minimum_deltas(remove2, add1)
   end
 
   property "arbitrary add and remove sequence results in correct map" do
