@@ -1,5 +1,6 @@
 defmodule NewAWLWWMapTest do
   use ExUnit.Case
+  use ExUnitProperties
 
   test "can add and read a value" do
     assert %{1 => 2} =
@@ -36,5 +37,42 @@ defmodule NewAWLWWMapTest do
     assert %{1 => 3} =
              AWLWWMap.join(add1, add2)
              |> AWLWWMap.read()
+  end
+
+  property "arbitrary add and remove sequence results in correct map" do
+    operation_gen =
+      ExUnitProperties.gen all op <- StreamData.member_of([:add, :remove]),
+                               node_id <- term(),
+                               key <- term(),
+                               value <- term() do
+        {op, key, value, node_id}
+      end
+
+    check all operations <- list_of(operation_gen) do
+      actual_result =
+        operations
+        |> Enum.reduce(AWLWWMap.new(), fn
+          {:add, key, val, node_id}, map ->
+            AWLWWMap.add(key, val, node_id, map)
+            |> AWLWWMap.join(map)
+
+          {:remove, key, _val, node_id}, map ->
+            AWLWWMap.remove(key, node_id, map)
+            |> AWLWWMap.join(map)
+        end)
+        |> AWLWWMap.read()
+
+      correct_result =
+        operations
+        |> Enum.reduce(%{}, fn
+          {:add, key, value, _node_id}, map ->
+            Map.put(map, key, value)
+
+          {:remove, key, _value, _node_id}, map ->
+            Map.delete(map, key)
+        end)
+
+      assert actual_result == correct_result
+    end
   end
 end

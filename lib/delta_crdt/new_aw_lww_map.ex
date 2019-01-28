@@ -1,7 +1,7 @@
 defmodule AWLWWMap do
   defstruct keys: MapSet.new(),
             dots: MapSet.new(),
-            value: {%{}, %{}}
+            value: {%{}, []}
 
   def new(), do: %__MODULE__{}
 
@@ -12,14 +12,14 @@ defmodule AWLWWMap do
     |> apply_op(key, state)
   end
 
-  def remove(key, i, state) do
-    IO.inspect(state)
+  def remove(key, _i, state) do
     %{value: {val, _dots}} = state
 
     to_remove_dots =
-      Map.fetch!(val, key)
-      |> IO.inspect()
-      |> Enum.flat_map(fn {_val, to_remove_dots} -> to_remove_dots end)
+      case Map.fetch(val, key) do
+        {:ok, value} -> Enum.flat_map(value, fn {_val, to_remove_dots} -> to_remove_dots end)
+        :error -> []
+      end
 
     %__MODULE__{
       dots: MapSet.new(to_remove_dots),
@@ -29,38 +29,39 @@ defmodule AWLWWMap do
   end
 
   def join(delta1, delta2, nested_joins \\ [:join, :dot_set_join]) do
-    intersecting_keys = MapSet.intersection(delta1.keys, delta2.keys)
+    {val1, context1} = delta1.value
+    {val2, context2} = delta2.value
+
+    intersecting_keys =
+      if(Enum.empty?(delta1.keys) || Enum.empty?(delta2.keys)) do
+        # "no keys" means that we have to check every key
+        MapSet.new(Map.keys(val1) ++ Map.keys(val2))
+      else
+        MapSet.intersection(delta1.keys, delta2.keys)
+      end
 
     new_keys = MapSet.union(delta1.keys, delta2.keys)
     new_dots = MapSet.union(delta1.dots, delta2.dots)
 
-    {val1, context1} = delta1.value
-    {val2, context2} = delta2.value
-
     resolved_conflicts =
       Enum.flat_map(intersecting_keys, fn key ->
-        case {Map.get(val1, key, :bottom), Map.get(val2, key, :bottom)} do
-          {:bottom, _x} ->
-            []
+        sub_delta1 =
+          Map.put(delta1, :value, {Map.get(val1, key, %{}), context1})
+          |> Map.put(:keys, MapSet.new())
 
-          {_x, :bottom} ->
-            []
+        sub_delta2 =
+          Map.put(delta2, :value, {Map.get(val2, key, %{}), context2})
+          |> Map.put(:keys, MapSet.new())
 
-          {sub1, sub2} ->
-            sub_delta1 =
-              Map.put(delta1, :value, {sub1, context1})
-              |> Map.put(:keys, MapSet.new(Map.keys(sub1)))
+        [next_join | other_joins] = nested_joins
 
-            sub_delta2 =
-              Map.put(delta2, :value, {sub2, context2})
-              |> Map.put(:keys, MapSet.new(Map.keys(sub2)))
+        %{value: {new_sub, _}} =
+          apply(__MODULE__, next_join, [sub_delta1, sub_delta2, other_joins])
 
-            [next_join | other_joins] = nested_joins
-
-            %{value: {new_sub, _}} =
-              apply(__MODULE__, next_join, [sub_delta1, sub_delta2, other_joins])
-
-            [{key, new_sub}]
+        if Enum.empty?(new_sub) do
+          []
+        else
+          [{key, new_sub}]
         end
       end)
       |> Map.new()
@@ -101,8 +102,24 @@ defmodule AWLWWMap do
     {%{el => [d]}, [d | Map.get(aw_set, el, [])]}
   end
 
-  defp dot_set_join({s1, c1}, {s2, c2}) do
-    IO.inspect({{s1, c1}, {s2, c2}})
+  def dot_set_join(%{value: {s1, c1}}, %{value: {s2, c2}}, []) do
+    s1 = MapSet.new(s1)
+    c1 = MapSet.new(c1)
+    s2 = MapSet.new(s2)
+    c2 = MapSet.new(c2)
+
+    new_s =
+      [
+        MapSet.intersection(s1, s2),
+        MapSet.difference(s1, c2),
+        MapSet.difference(s2, c1)
+      ]
+      |> Enum.reduce(&MapSet.union/2)
+
+    # we aren't going to end up using this anyways
+    new_c = []
+
+    %__MODULE__{value: {new_s, new_c}}
   end
 
   defp apply_op(op, key, %{value: {m, c}}) do
