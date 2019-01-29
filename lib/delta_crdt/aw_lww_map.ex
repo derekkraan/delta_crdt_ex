@@ -135,10 +135,6 @@ defmodule DeltaCrdt.AWLWWMap do
     }
   end
 
-  defp join_contexts(c1, c2) do
-    Enum.uniq(c1 ++ c2)
-  end
-
   def read(%{value: value}) do
     Enum.flat_map(value, fn {key, values} ->
       Enum.map(values, fn {val, _c} -> {key, val} end)
