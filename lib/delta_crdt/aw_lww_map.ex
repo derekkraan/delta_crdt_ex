@@ -48,11 +48,8 @@ defmodule DeltaCrdt.AWLWWMap do
   def expansion?(d, state) do
     # check add expansion
     case Enum.to_list(d.dots) do
-      [] ->
-        false
-
-      [dot] ->
-        !MapSet.member?(state.dots, dot)
+      [] -> false
+      [dot] -> !MapSet.member?(state.dots, dot)
     end
   end
 
@@ -90,8 +87,10 @@ defmodule DeltaCrdt.AWLWWMap do
     val1 = delta1.value
     val2 = delta2.value
 
+    all_intersecting = Enum.empty?(delta1.keys) || Enum.empty?(delta2.keys)
+
     intersecting_keys =
-      if(Enum.empty?(delta1.keys) || Enum.empty?(delta2.keys)) do
+      if all_intersecting do
         # "no keys" means that we have to check every key
         MapSet.new(Map.keys(val1) ++ Map.keys(val2))
       else
@@ -124,9 +123,13 @@ defmodule DeltaCrdt.AWLWWMap do
       |> Map.new()
 
     new_val =
-      Map.drop(delta1.value, intersecting_keys)
-      |> Map.merge(Map.drop(delta2.value, intersecting_keys))
-      |> Map.merge(resolved_conflicts)
+      if all_intersecting do
+        resolved_conflicts
+      else
+        Map.drop(delta1.value, intersecting_keys)
+        |> Map.merge(Map.drop(delta2.value, intersecting_keys))
+        |> Map.merge(resolved_conflicts)
+      end
 
     %__MODULE__{
       dots: new_dots,
