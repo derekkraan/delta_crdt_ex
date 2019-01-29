@@ -11,7 +11,7 @@ defmodule BenchHelper do
   end
 end
 
-add = fn total ->
+add_and_remove = fn total ->
   fn ->
     {:ok, crdt1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 50)
     {:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 50)
@@ -36,16 +36,14 @@ add = fn total ->
   end
 end
 
-# :fprof.trace(:start)
-
 Benchee.run(%{
-  # "add 500 records" => add.(500)
-  "add 1_000 records" => add.(1_000)
-  # "add 5_000 records" => add.(5_000)
-  # "add 10_000 records" => add.(10_000),
-  # "add 50_000 records" => add.(50_000)
+  "add and remove 1_000 records" => add_and_remove.(1_000),
+  "add and remove 5_000 records" => add_and_remove.(5_000)
 })
 
+# TRACING:
+# :fprof.trace(:start)
+# add_and_remove.(1000).()
 # :fprof.trace(:stop)
 
 # :fprof.profile()
