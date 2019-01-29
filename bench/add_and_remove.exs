@@ -4,7 +4,7 @@ defmodule BenchHelper do
       ^result ->
         result
 
-      other ->
+      _other ->
         Process.sleep(50)
         get_result(fun, result)
     end
@@ -13,7 +13,6 @@ end
 
 add = fn total ->
   fn ->
-    run = :rand.uniform(9_999_999)
     {:ok, crdt1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 50)
     {:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 50)
     DeltaCrdt.add_neighbours(crdt1, [crdt2])
@@ -31,8 +30,15 @@ add = fn total ->
   end
 end
 
+# :fprof.trace(:start)
+
 Benchee.run(%{
-  "add 1_000 records" => add.(1000),
+  # "add 500 records" => add.(500)
+  "add 1_000 records" => add.(1_000),
   "add 5_000 records" => add.(5000)
-  # "add 10_000 records" => add.(10_000)
 })
+
+# :fprof.trace(:stop)
+
+# :fprof.profile()
+# :fprof.analyse(dest: 'fprof.analyse', cols: 120)

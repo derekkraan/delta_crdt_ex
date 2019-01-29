@@ -1,7 +1,7 @@
 defmodule DeltaCrdt.AWLWWMap do
   defstruct keys: MapSet.new(),
             dots: MapSet.new(),
-            value: {%{}, []}
+            value: %{}
 
   def new(), do: %__MODULE__{}
 
@@ -13,7 +13,7 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def remove(key, _i, state) do
-    %{value: {val, _dots}} = state
+    %{value: val} = state
 
     to_remove_dots =
       case Map.fetch(val, key) do
@@ -24,16 +24,12 @@ defmodule DeltaCrdt.AWLWWMap do
     %__MODULE__{
       dots: MapSet.new(to_remove_dots),
       keys: MapSet.new([key]),
-      value: {%{}, to_remove_dots}
+      value: %{}
     }
   end
 
   def clear(_i, state) do
-    %__MODULE__{
-      dots: state.dots,
-      keys: state.keys,
-      value: {%{}, Enum.to_list(state.dots)}
-    }
+    Map.put(state, :value, %{})
   end
 
   def minimum_deltas(delta, state) do
@@ -41,7 +37,7 @@ defmodule DeltaCrdt.AWLWWMap do
     |> Enum.filter(fn delta -> expansion?(delta, state) end)
   end
 
-  def expansion?(%{value: {val, _}} = d, state) when map_size(val) == 0 do
+  def expansion?(%{value: val} = d, state) when map_size(val) == 0 do
     # check remove expansion
     case Enum.to_list(d.dots) do
       [] -> false
@@ -60,9 +56,7 @@ defmodule DeltaCrdt.AWLWWMap do
     end
   end
 
-  def join_decomposition(delta) do
-    {val, _c} = delta.value
-
+  def join_decomposition(%{value: val} = delta) do
     dots_to_deltas =
       Enum.flat_map(val, fn {key, dot_map} ->
         Enum.flat_map(dot_map, fn {_key, dots} ->
@@ -77,7 +71,7 @@ defmodule DeltaCrdt.AWLWWMap do
           %__MODULE__{
             dots: MapSet.new([dot]),
             keys: delta.keys,
-            value: {%{}, [dot]}
+            value: %{}
           }
 
         key ->
@@ -86,15 +80,15 @@ defmodule DeltaCrdt.AWLWWMap do
           %__MODULE__{
             dots: MapSet.new([dot]),
             keys: MapSet.new([key]),
-            value: {%{key => dots}, [dot]}
+            value: %{key => dots}
           }
       end
     end)
   end
 
   def join(delta1, delta2, nested_joins \\ [:join, :dot_set_join]) do
-    {val1, context1} = delta1.value
-    {val2, context2} = delta2.value
+    val1 = delta1.value
+    val2 = delta2.value
 
     intersecting_keys =
       if(Enum.empty?(delta1.keys) || Enum.empty?(delta2.keys)) do
@@ -110,17 +104,16 @@ defmodule DeltaCrdt.AWLWWMap do
     resolved_conflicts =
       Enum.flat_map(intersecting_keys, fn key ->
         sub_delta1 =
-          Map.put(delta1, :value, {Map.get(val1, key, %{}), context1})
+          Map.put(delta1, :value, Map.get(delta1.value, key, %{}))
           |> Map.put(:keys, MapSet.new())
 
         sub_delta2 =
-          Map.put(delta2, :value, {Map.get(val2, key, %{}), context2})
+          Map.put(delta2, :value, Map.get(delta2.value, key, %{}))
           |> Map.put(:keys, MapSet.new())
 
         [next_join | other_joins] = nested_joins
 
-        %{value: {new_sub, _}} =
-          apply(__MODULE__, next_join, [sub_delta1, sub_delta2, other_joins])
+        %{value: new_sub} = apply(__MODULE__, next_join, [sub_delta1, sub_delta2, other_joins])
 
         if Enum.empty?(new_sub) do
           []
@@ -131,16 +124,14 @@ defmodule DeltaCrdt.AWLWWMap do
       |> Map.new()
 
     new_val =
-      Map.drop(val1, intersecting_keys)
-      |> Map.merge(Map.drop(val2, intersecting_keys))
+      Map.drop(delta1.value, intersecting_keys)
+      |> Map.merge(Map.drop(delta2.value, intersecting_keys))
       |> Map.merge(resolved_conflicts)
-
-    new_context = join_contexts(context1, context2)
 
     %__MODULE__{
       dots: new_dots,
       keys: new_keys,
-      value: {new_val, new_context}
+      value: new_val
     }
   end
 
@@ -148,7 +139,7 @@ defmodule DeltaCrdt.AWLWWMap do
     Enum.uniq(c1 ++ c2)
   end
 
-  def read(%{value: {value, _}}) do
+  def read(%{value: value}) do
     Enum.flat_map(value, fn {key, values} ->
       Enum.map(values, fn {val, _c} -> {key, val} end)
     end)
@@ -166,11 +157,9 @@ defmodule DeltaCrdt.AWLWWMap do
     {%{el => [d]}, [d | Map.get(aw_set, el, [])]}
   end
 
-  def dot_set_join(%{value: {s1, c1}}, %{value: {s2, c2}}, []) do
+  def dot_set_join(%{value: s1, dots: c1}, %{value: s2, dots: c2}, []) do
     s1 = MapSet.new(s1)
-    c1 = MapSet.new(c1)
     s2 = MapSet.new(s2)
-    c2 = MapSet.new(c2)
 
     new_s =
       [
@@ -183,14 +172,14 @@ defmodule DeltaCrdt.AWLWWMap do
     # we aren't going to end up using this anyways
     new_c = []
 
-    %__MODULE__{value: {new_s, new_c}}
+    %__MODULE__{value: new_s}
   end
 
-  defp apply_op(op, key, %{value: {m, c}}) do
+  defp apply_op(op, key, %{value: m, dots: c}) do
     {val, c_p} = op.(Map.get(m, key, %{}), c)
 
     %__MODULE__{
-      value: {%{key => val}, c_p},
+      value: %{key => val},
       dots: MapSet.new(c_p),
       keys: MapSet.new([key])
     }
