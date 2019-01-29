@@ -17,13 +17,19 @@ add = fn total ->
     {:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 50)
     DeltaCrdt.add_neighbours(crdt1, [crdt2])
 
-    Enum.each(1..total, fn x ->
+    Enum.each(1..(total - 1), fn x ->
       DeltaCrdt.mutate(crdt1, :add, [x, x])
     end)
 
+    Enum.each(1..(total - 1), fn x ->
+      DeltaCrdt.mutate(crdt1, :remove, [x])
+    end)
+
+    DeltaCrdt.mutate(crdt1, :add, [total, total])
+
     BenchHelper.get_result(
       fn ->
-        DeltaCrdt.read(crdt2) |> Map.get(total)
+        DeltaCrdt.read(crdt2, :infinity) |> Map.get(total)
       end,
       total
     )
@@ -34,8 +40,10 @@ end
 
 Benchee.run(%{
   # "add 500 records" => add.(500)
-  "add 1_000 records" => add.(1_000),
-  "add 5_000 records" => add.(5000)
+  "add 1_000 records" => add.(1_000)
+  # "add 5_000 records" => add.(5_000)
+  # "add 10_000 records" => add.(10_000),
+  # "add 50_000 records" => add.(50_000)
 })
 
 # :fprof.trace(:stop)

@@ -165,9 +165,6 @@ defmodule DeltaCrdt.AWLWWMap do
       ]
       |> Enum.reduce(&MapSet.union/2)
 
-    # we aren't going to end up using this anyways
-    new_c = []
-
     %__MODULE__{value: new_s}
   end
 
@@ -181,17 +178,49 @@ defmodule DeltaCrdt.AWLWWMap do
     }
   end
 
-  defp next_dot(i, c) do
-    {_i, max} =
-      Enum.max_by(
-        c,
-        fn
-          {^i, x} -> x
-          _ -> 0
-        end,
-        fn -> {i, 0} end
-      )
+  defmodule BinarySearch do
+    def binary_search(fun, min \\ 1, max \\ 100) when min <= max do
+      upper_bound = find_upper_bound(fun, max)
+      find_value(fun, min, upper_bound)
+    end
 
-    {i, max + 1}
+    defp find_upper_bound(fun, max) do
+      case fun.(max) do
+        x when x < 0 ->
+          find_upper_bound(fun, max * 2)
+
+        x when x > 0 ->
+          max
+      end
+    end
+
+    defp find_value(_fun, min, min) do
+      min
+    end
+
+    defp find_value(fun, min, max) do
+      attempt = trunc(min + (max - min) / 2)
+
+      case fun.(attempt) do
+        x when x < 0 ->
+          find_value(fun, attempt + 1, max)
+
+        x when x > 0 ->
+          find_value(fun, min, attempt)
+      end
+    end
+  end
+
+  defp next_dot(i, c) do
+    next_max =
+      BinarySearch.binary_search(fn x ->
+        if MapSet.member?(c, {i, x}) do
+          -1
+        else
+          1
+        end
+      end)
+
+    {i, next_max}
   end
 end
