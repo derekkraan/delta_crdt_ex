@@ -71,7 +71,10 @@ defmodule CausalCrdtTest do
 
     Task.await(task)
 
-    DeltaCrdt.start_link(AWLWWMap, storage_module: MemoryStorage, name: :storage_test)
+    # time for the previous process to deregister itself
+    Process.sleep(10)
+
+    {:ok, _} = DeltaCrdt.start_link(AWLWWMap, storage_module: MemoryStorage, name: :storage_test)
 
     assert %{"Derek" => "Kraan"} = DeltaCrdt.read(:storage_test)
   end
