@@ -36,6 +36,7 @@ defmodule DeltaCrdt do
           | {:sync_interval, pos_integer()}
           | {:ship_interval, pos_integer()}
           | {:ship_debounce, pos_integer()}
+          | {:storage_module, DeltaCrdt.Storage.t()}
 
   @type crdt_options :: [crdt_option()]
 
@@ -54,14 +55,14 @@ defmodule DeltaCrdt do
           genserver_opts :: GenServer.options()
         ) :: GenServer.on_start()
   def start_link(crdt_module, opts \\ [], genserver_opts \\ []) do
-    GenServer.start_link(
-      DeltaCrdt.CausalCrdt,
-      {crdt_module, Keyword.get(opts, :notify, nil),
-       Keyword.get(opts, :sync_interval, @default_sync_interval),
-       Keyword.get(opts, :ship_interval, @default_ship_interval),
-       Keyword.get(opts, :ship_debounce, @default_ship_debounce)},
-      genserver_opts
-    )
+    init_arg =
+      Keyword.put(opts, :crdt_module, crdt_module)
+      |> Keyword.put_new(:sync_interval, @default_sync_interval)
+      |> Keyword.put_new(:ship_interval, @default_ship_interval)
+      |> Keyword.put_new(:ship_debounce, @default_ship_debounce)
+      |> Keyword.put(:name, Keyword.get(genserver_opts, :name))
+
+    GenServer.start_link(DeltaCrdt.CausalCrdt, init_arg, genserver_opts)
   end
 
   @doc """
@@ -69,6 +70,12 @@ defmodule DeltaCrdt do
   """
   def child_spec(opts \\ []) do
     name = Keyword.get(opts, :name, nil)
+    storage_module = Keyword.get(opts, :storage_module, nil)
+
+    if !is_nil(storage_module) && is_nil(name) do
+      raise ArgumentError, "if :storage_module is specified, then :name must also be specified"
+    end
+
     crdt_module = Keyword.get(opts, :crdt, nil)
     shutdown = Keyword.get(opts, :shutdown, 5000)
 
@@ -82,7 +89,7 @@ defmodule DeltaCrdt do
 
     %{
       id: name,
-      start: {DeltaCrdt, :start_link, [crdt_module, Keyword.drop(opts, [:name]), [name: name]]},
+      start: {DeltaCrdt, :start_link, [crdt_module, opts, [name: name]]},
       shutdown: shutdown
     }
   end

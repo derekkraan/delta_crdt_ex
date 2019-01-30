@@ -11,12 +11,15 @@ defmodule DeltaCrdt.CausalCrdt do
   @type delta :: {k :: integer(), delta :: any()}
   @type delta_interval :: {a :: integer(), b :: integer(), delta :: delta()}
 
+  @opaque storage_format :: {crdt_state :: term(), sequence_number :: integer()}
+
   @moduledoc false
 
   defstruct node_id: nil,
             notify: nil,
             neighbours: MapSet.new(),
             neighbour_refs: %{},
+            storage_module: nil,
             crdt_module: nil,
             crdt_state: nil,
             shipped_sequence_number: 0,
@@ -28,25 +31,55 @@ defmodule DeltaCrdt.CausalCrdt do
 
   ### GenServer callbacks
 
-  def init({crdt_module, notify, sync_interval, ship_interval, ship_debounce}) do
+  def init(opts) do
     DeltaCrdt.Periodic.start_link(:garbage_collect_deltas, @gc_interval)
-    DeltaCrdt.Periodic.start_link(:sync, sync_interval)
-    DeltaCrdt.Periodic.start_link(:try_ship_client, ship_interval)
+    DeltaCrdt.Periodic.start_link(:sync, Keyword.get(opts, :sync_interval))
+    DeltaCrdt.Periodic.start_link(:try_ship_client, Keyword.get(opts, :ship_interval))
 
     Process.flag(:trap_exit, true)
 
-    {:ok,
-     %__MODULE__{
-       node_id: :rand.uniform(1_000_000_000),
-       notify: notify,
-       crdt_module: crdt_module,
-       ship_debounce: ship_debounce,
-       crdt_state: crdt_module.new()
-     }}
+    crdt_module = Keyword.get(opts, :crdt_module)
+
+    initial_state =
+      %__MODULE__{
+        node_id: Keyword.get(opts, :name, :rand.uniform(1_000_000_000)),
+        notify: Keyword.get(opts, :notify),
+        storage_module: Keyword.get(opts, :storage_module),
+        crdt_module: crdt_module,
+        ship_debounce: Keyword.get(opts, :ship_debounce),
+        crdt_state: crdt_module.new()
+      }
+      |> read_from_storage()
+
+    {:ok, initial_state}
   end
 
   def terminate(_reason, state) do
     sync_interval_or_state_to_all(%{state | outstanding_acks: %{}})
+  end
+
+  defp read_from_storage(%{storage_module: nil} = state) do
+    state
+  end
+
+  defp read_from_storage(state) do
+    case state.storage_module.read(state.node_id) do
+      nil ->
+        state
+
+      {sequence_number, crdt_state} ->
+        Map.put(state, :sequence_number, sequence_number)
+        |> Map.put(:crdt_state, crdt_state)
+    end
+  end
+
+  defp write_to_storage(%{storage_module: nil} = state) do
+    state
+  end
+
+  defp write_to_storage(state) do
+    :ok = state.storage_module.write(state.node_id, {state.sequence_number, state.crdt_state})
+    state
   end
 
   defp resolve_neighbour(neighbour) when is_pid(neighbour), do: neighbour
@@ -319,6 +352,7 @@ defmodule DeltaCrdt.CausalCrdt do
         Map.put(state, :deltas, new_deltas)
         |> Map.put(:crdt_state, new_crdt_state)
         |> Map.put(:sequence_number, new_sequence_number)
+        |> write_to_storage()
     end
   end
 
@@ -343,6 +377,7 @@ defmodule DeltaCrdt.CausalCrdt do
         Map.put(state, :deltas, new_deltas)
         |> Map.put(:crdt_state, new_crdt_state)
         |> Map.put(:sequence_number, new_sequence_number)
+        |> write_to_storage()
     end
   end
 

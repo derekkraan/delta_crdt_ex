@@ -55,6 +55,27 @@ defmodule CausalCrdtTest do
     assert 0 = GenServer.call(c1, :delta_count)
   end
 
+  test "storage backend can store and retrieve state" do
+    DeltaCrdt.start_link(AWLWWMap, [storage_module: MemoryStorage], name: :storage_test)
+
+    DeltaCrdt.mutate(:storage_test, :add, ["Derek", "Kraan"])
+    assert %{"Derek" => "Kraan"} = DeltaCrdt.read(:storage_test)
+  end
+
+  test "storage backend is used to rehydrate state after a crash" do
+    task =
+      Task.async(fn ->
+        DeltaCrdt.start_link(AWLWWMap, [storage_module: MemoryStorage], name: :storage_test)
+        DeltaCrdt.mutate(:storage_test, :add, ["Derek", "Kraan"])
+      end)
+
+    Task.await(task)
+
+    DeltaCrdt.start_link(AWLWWMap, [storage_module: MemoryStorage], name: :storage_test)
+
+    assert %{"Derek" => "Kraan"} = DeltaCrdt.read(:storage_test)
+  end
+
   test "conflicting updates resolve", context do
     DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "one_wins"])
     DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "two_wins"])
