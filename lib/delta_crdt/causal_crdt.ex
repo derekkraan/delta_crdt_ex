@@ -294,11 +294,6 @@ defmodule DeltaCrdt.CausalCrdt do
   def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),
     do: {:reply, {crdt_module, crdt_state}, state}
 
-  def handle_call({:read, module}, _from, state) do
-    ret = apply(module, :read, [state.crdt_state])
-    {:reply, ret, state}
-  end
-
   def handle_call({:operation, operation}, _from, state) do
     {:reply, :ok, handle_operation(operation, state)}
   end
