@@ -51,37 +51,26 @@ defmodule DeltaCrdt do
   """
   @spec start_link(
           crdt_module :: module(),
-          opts :: crdt_options(),
-          genserver_opts :: GenServer.options()
+          opts :: crdt_options()
         ) :: GenServer.on_start()
-  def start_link(crdt_module, opts \\ [], genserver_opts \\ []) do
+  def start_link(crdt_module, opts \\ []) do
     init_arg =
       Keyword.put(opts, :crdt_module, crdt_module)
       |> Keyword.put_new(:sync_interval, @default_sync_interval)
       |> Keyword.put_new(:ship_interval, @default_ship_interval)
       |> Keyword.put_new(:ship_debounce, @default_ship_debounce)
-      |> Keyword.put(:name, Keyword.get(genserver_opts, :name))
 
-    GenServer.start_link(DeltaCrdt.CausalCrdt, init_arg, genserver_opts)
+    GenServer.start_link(DeltaCrdt.CausalCrdt, init_arg, Keyword.take(opts, [:name]))
   end
 
   @doc """
   Include DeltaCrdt in a supervision tree with `{DeltaCrdt, [crdt: DeltaCrdt.AWLWWMap, name: MyCRDTMap]}`
   """
   def child_spec(opts \\ []) do
-    name = Keyword.get(opts, :name, nil)
+    name = Keyword.get(opts, :name, __MODULE__)
     storage_module = Keyword.get(opts, :storage_module, nil)
-
-    if !is_nil(storage_module) && is_nil(name) do
-      raise ArgumentError, "if :storage_module is specified, then :name must also be specified"
-    end
-
     crdt_module = Keyword.get(opts, :crdt, nil)
     shutdown = Keyword.get(opts, :shutdown, 5000)
-
-    if is_nil(name) do
-      raise "must specify :name in options, got: #{inspect(opts)}"
-    end
 
     if is_nil(crdt_module) do
       raise "must specify :crdt in options, got: #{inspect(opts)}"
@@ -89,7 +78,7 @@ defmodule DeltaCrdt do
 
     %{
       id: name,
-      start: {DeltaCrdt, :start_link, [crdt_module, opts, [name: name]]},
+      start: {DeltaCrdt, :start_link, [crdt_module, opts]},
       shutdown: shutdown
     }
   end

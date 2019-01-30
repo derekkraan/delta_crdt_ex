@@ -56,7 +56,7 @@ defmodule CausalCrdtTest do
   end
 
   test "storage backend can store and retrieve state" do
-    DeltaCrdt.start_link(AWLWWMap, [storage_module: MemoryStorage], name: :storage_test)
+    DeltaCrdt.start_link(AWLWWMap, storage_module: MemoryStorage, name: :storage_test)
 
     DeltaCrdt.mutate(:storage_test, :add, ["Derek", "Kraan"])
     assert %{"Derek" => "Kraan"} = DeltaCrdt.read(:storage_test)
@@ -65,13 +65,13 @@ defmodule CausalCrdtTest do
   test "storage backend is used to rehydrate state after a crash" do
     task =
       Task.async(fn ->
-        DeltaCrdt.start_link(AWLWWMap, [storage_module: MemoryStorage], name: :storage_test)
+        DeltaCrdt.start_link(AWLWWMap, storage_module: MemoryStorage, name: :storage_test)
         DeltaCrdt.mutate(:storage_test, :add, ["Derek", "Kraan"])
       end)
 
     Task.await(task)
 
-    DeltaCrdt.start_link(AWLWWMap, [storage_module: MemoryStorage], name: :storage_test)
+    DeltaCrdt.start_link(AWLWWMap, storage_module: MemoryStorage, name: :storage_test)
 
     assert %{"Derek" => "Kraan"} = DeltaCrdt.read(:storage_test)
   end
