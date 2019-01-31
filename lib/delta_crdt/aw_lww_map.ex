@@ -63,9 +63,9 @@ defmodule DeltaCrdt.AWLWWMap do
 
       [dot] ->
         MapSet.member?(state.dots, dot) && !MapSet.disjoint?(d.keys, state.keys) &&
-          Enum.any?(d.keys, fn key ->
-            Map.get(state.value, key)
-            |> Enum.any?(fn
+          Map.take(state.value, d.keys)
+          |> Enum.any?(fn {_k, val} ->
+            Enum.any?(val, fn
               {_v, [^dot]} -> true
               _ -> false
             end)
