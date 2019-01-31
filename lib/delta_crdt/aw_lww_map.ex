@@ -55,11 +55,18 @@ defmodule DeltaCrdt.AWLWWMap do
     |> Enum.filter(fn delta -> expansion?(delta, state) end)
   end
 
-  def expansion?(%{value: value} = d, state) when map_size(value) == 0 do
+  def expansion?(%{value: values} = d, state) when map_size(values) == 0 do
     # check remove expansion
     case Enum.to_list(d.dots) do
-      [] -> false
-      [dot] -> MapSet.member?(state.dots, dot) && !MapSet.disjoint?(state.keys, d.keys)
+      [] ->
+        false
+
+      [dot] ->
+        MapSet.member?(state.dots, dot) && !MapSet.disjoint?(state.keys, d.keys) &&
+          Enum.any?(Map.take(state.value, d.keys), fn
+            {_v, [^dot]} -> true
+            _ -> false
+          end)
     end
   end
 
