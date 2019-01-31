@@ -12,18 +12,23 @@ setup_crdt = fn number_of_items ->
   crdt1
 end
 
-crdt_100 = setup_crdt.(100)
-crdt_1000 = setup_crdt.(1000)
-crdt_10_000 = setup_crdt.(10_000)
-
-Benchee.run(%{
-  "read (with 100 items)" => fn -> DeltaCrdt.read(crdt_100) end,
-  "read (with 1.000 items)" => fn -> DeltaCrdt.read(crdt_1000) end,
-  "read (with 10.000 items)" => fn -> DeltaCrdt.read(crdt_10_000) end,
-  "add (with 100 items)" => fn -> DeltaCrdt.mutate(crdt_100, :add, ["key4", "value"]) end,
-  "add (with 1.000 items)" => fn -> DeltaCrdt.mutate(crdt_1000, :add, ["key4", "value"]) end,
-  "add (with 10.000 items)" => fn -> DeltaCrdt.mutate(crdt_10_000, :add, ["key4", "value"]) end,
-  "remove (with 100 items)" => fn -> DeltaCrdt.mutate(crdt_100, :remove, [10]) end,
-  "remove (with 1.000 items)" => fn -> DeltaCrdt.mutate(crdt_1000, :remove, [10]) end,
-  "remove (with 10.000 items)" => fn -> DeltaCrdt.mutate(crdt_10_000, :remove, [10]) end
-})
+Benchee.run(
+  %{
+    # "read" => fn crdt -> DeltaCrdt.read(crdt) end,
+    "add" => fn crdt -> DeltaCrdt.mutate(crdt, :add, ["key4", "value"]) end,
+    "update" => fn crdt -> DeltaCrdt.mutate(crdt, :add, [10, 12]) end,
+    "remove" => fn crdt -> DeltaCrdt.mutate(crdt, :remove, [10]) end
+  },
+  inputs: %{
+    # "with 100" => setup_crdt.(100),
+    "with 1000" => setup_crdt.(1000)
+    # "with 10_000" => setup_crdt.(10_000)
+  },
+  before_scenario: fn crdt ->
+    DeltaCrdt.mutate(crdt, :add, [10, 10])
+    crdt
+  end,
+  after_scenario: fn crdt ->
+    DeltaCrdt.mutate(crdt, :remove, ["key4"])
+  end
+)
