@@ -96,11 +96,6 @@ defmodule AWLWWMapTest do
     end
   end
 
-  describe ".start_link/2" do
-    test "starts a causal CRDT process" do
-    end
-  end
-
   describe ".join_decomposition/1" do
     property "join decomposition has one dot per decomposed delta" do
       check all ops <- list_of(AWLWWMapProperty.random_operation()) do
@@ -147,7 +142,9 @@ defmodule AWLWWMapTest do
     end
 
     property "operation can be applied and then is no longer strict expansion" do
-      check all [op1, op2] <- list_of(AWLWWMapProperty.random_operation(), length: 2) do
+      check all [op1, op2] <- list_of(AWLWWMapProperty.random_operation(), length: 2),
+                max_run_time: 2000,
+                max_runs: 2000 do
         op1 = op1.(AWLWWMap.new())
         op2 = op2.(op1)
         state = AWLWWMap.join(op1, op2)

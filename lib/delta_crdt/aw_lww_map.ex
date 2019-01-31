@@ -12,6 +12,21 @@ defmodule DeltaCrdt.AWLWWMap do
     |> apply_op(key, state)
   end
 
+  defp aw_set_add(i, el, {aw_set, c}) do
+    d = next_dot(i, c)
+    {%{el => [d]}, [d | Map.get(aw_set, el, [])]}
+  end
+
+  defp apply_op(op, key, %{value: m, dots: c}) do
+    {val, c_p} = op.(Map.get(m, key, %{}), c)
+
+    %__MODULE__{
+      dots: MapSet.new(c_p),
+      keys: MapSet.new([key]),
+      value: %{key => val}
+    }
+  end
+
   def remove(key, _i, state) do
     %{value: val} = state
 
@@ -37,7 +52,7 @@ defmodule DeltaCrdt.AWLWWMap do
     |> Enum.filter(fn delta -> expansion?(delta, state) end)
   end
 
-  def expansion?(%{value: val} = d, state) when map_size(val) == 0 do
+  def expansion?(%{value: value} = d, state) when map_size(value) == 0 do
     # check remove expansion
     case Enum.to_list(d.dots) do
       [] -> false
@@ -83,7 +98,12 @@ defmodule DeltaCrdt.AWLWWMap do
     end)
   end
 
-  def join(delta1, delta2, nested_joins \\ [:join, :dot_set_join]) do
+  def join(delta1, delta2) do
+    join_or_map(delta1, delta2, [:join_or_map, :dot_set_join])
+    |> refresh_dots()
+  end
+
+  def join_or_map(delta1, delta2, nested_joins \\ [:join, :dot_set_join]) do
     val1 = delta1.value
     val2 = delta2.value
 
@@ -98,7 +118,6 @@ defmodule DeltaCrdt.AWLWWMap do
       end
 
     new_keys = MapSet.union(delta1.keys, delta2.keys)
-    new_dots = MapSet.union(delta1.dots, delta2.dots)
 
     resolved_conflicts =
       Enum.flat_map(intersecting_keys, fn key ->
@@ -132,28 +151,9 @@ defmodule DeltaCrdt.AWLWWMap do
       end
 
     %__MODULE__{
-      dots: new_dots,
       keys: new_keys,
       value: new_val
     }
-  end
-
-  def read(%{value: value}) do
-    Enum.flat_map(value, fn {key, values} ->
-      Enum.map(values, fn {val, _c} -> {key, val} end)
-    end)
-    |> Enum.reduce(%{}, fn {key, {val, ts}}, map ->
-      Map.update(map, key, {val, ts}, fn
-        {_val1, ts1} = newer_value when ts1 > ts -> newer_value
-        _ -> {val, ts}
-      end)
-    end)
-    |> Map.new(fn {key, {val, _ts}} -> {key, val} end)
-  end
-
-  defp aw_set_add(i, el, {aw_set, c}) do
-    d = next_dot(i, c)
-    {%{el => [d]}, [d | Map.get(aw_set, el, [])]}
   end
 
   def dot_set_join(%{value: s1, dots: c1}, %{value: s2, dots: c2}, []) do
@@ -167,18 +167,32 @@ defmodule DeltaCrdt.AWLWWMap do
         MapSet.difference(s2, c1)
       ]
       |> Enum.reduce(&MapSet.union/2)
+      |> Enum.to_list()
 
     %__MODULE__{value: new_s}
   end
 
-  defp apply_op(op, key, %{value: m, dots: c}) do
-    {val, c_p} = op.(Map.get(m, key, %{}), c)
+  defp refresh_dots(%{value: val} = s) do
+    new_dots =
+      Enum.flat_map(val, fn {_key, val} ->
+        Enum.flat_map(val, fn {_key, dot} -> dot end)
+      end)
+      |> MapSet.new()
 
-    %__MODULE__{
-      value: %{key => val},
-      dots: MapSet.new(c_p),
-      keys: MapSet.new([key])
-    }
+    %{s | dots: new_dots}
+  end
+
+  def read(%{value: value}) do
+    Enum.flat_map(value, fn {key, values} ->
+      Enum.map(values, fn {val, _c} -> {key, val} end)
+    end)
+    |> Enum.reduce(%{}, fn {key, {val, ts}}, map ->
+      Map.update(map, key, {val, ts}, fn
+        {_val1, ts1} = newer_value when ts1 > ts -> newer_value
+        _ -> {val, ts}
+      end)
+    end)
+    |> Map.new(fn {key, {val, _ts}} -> {key, val} end)
   end
 
   defmodule BinarySearch do

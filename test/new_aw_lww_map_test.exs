@@ -11,9 +11,7 @@ defmodule NewAWLWWMapTest do
   end
 
   test "can join two adds" do
-    # |> IO.inspect()
     add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
-    # |> IO.inspect()
     add2 = AWLWWMap.add(2, 2, :foo_node, add1)
 
     assert %{1 => 2, 2 => 2} =
