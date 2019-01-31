@@ -176,17 +176,11 @@ defmodule DeltaCrdt.AWLWWMap do
     %__MODULE__{value: new_s}
   end
 
-  def read(%{value: value}) do
-    Enum.flat_map(value, fn {key, values} ->
-      Enum.map(values, fn {val, _c} -> {key, val} end)
+  def read(%{value: values}) do
+    Map.new(values, fn {key, values} ->
+      {{val, _ts}, _c} = Enum.max_by(values, fn {{_val, ts}, _c} -> ts end)
+      {key, val}
     end)
-    |> Enum.reduce(%{}, fn {key, {val, ts}}, map ->
-      Map.update(map, key, {val, ts}, fn
-        {_val1, ts1} = newer_value when ts1 > ts -> newer_value
-        _ -> {val, ts}
-      end)
-    end)
-    |> Map.new(fn {key, {val, _ts}} -> {key, val} end)
   end
 
   defmodule BinarySearch do
