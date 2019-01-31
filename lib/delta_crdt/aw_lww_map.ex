@@ -56,7 +56,7 @@ defmodule DeltaCrdt.AWLWWMap do
     # check remove expansion
     case Enum.to_list(d.dots) do
       [] -> false
-      [dot] -> MapSet.member?(state.dots, dot)
+      [dot] -> MapSet.member?(state.dots, dot) && !MapSet.disjoint?(state.keys, d.keys)
     end
   end
 
@@ -99,8 +99,12 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def join(delta1, delta2) do
+    new_dots = MapSet.union(delta1.dots, delta2.dots)
+    new_keys = MapSet.union(delta1.keys, delta2.keys)
+
     join_or_map(delta1, delta2, [:join_or_map, :dot_set_join])
-    |> refresh_dots()
+    |> Map.put(:dots, new_dots)
+    |> Map.put(:keys, new_keys)
   end
 
   def join_or_map(delta1, delta2, nested_joins \\ [:join, :dot_set_join]) do
@@ -116,8 +120,6 @@ defmodule DeltaCrdt.AWLWWMap do
       else
         MapSet.intersection(delta1.keys, delta2.keys)
       end
-
-    new_keys = MapSet.union(delta1.keys, delta2.keys)
 
     resolved_conflicts =
       Enum.flat_map(intersecting_keys, fn key ->
@@ -151,7 +153,6 @@ defmodule DeltaCrdt.AWLWWMap do
       end
 
     %__MODULE__{
-      keys: new_keys,
       value: new_val
     }
   end
@@ -170,16 +171,6 @@ defmodule DeltaCrdt.AWLWWMap do
       |> Enum.to_list()
 
     %__MODULE__{value: new_s}
-  end
-
-  defp refresh_dots(%{value: val} = s) do
-    new_dots =
-      Enum.flat_map(val, fn {_key, val} ->
-        Enum.flat_map(val, fn {_key, dot} -> dot end)
-      end)
-      |> MapSet.new()
-
-    %{s | dots: new_dots}
   end
 
   def read(%{value: value}) do
