@@ -6,10 +6,13 @@ defmodule DeltaCrdt.AWLWWMap do
   def new(), do: %__MODULE__{}
 
   def add(key, value, i, state) do
+    rem = remove(key, i, state)
+
     fn aw_set, context ->
       aw_set_add(i, {value, System.system_time(:nanosecond)}, {aw_set, context})
     end
     |> apply_op(key, state)
+    |> join(rem)
   end
 
   defp aw_set_add(i, el, {aw_set, c}) do
