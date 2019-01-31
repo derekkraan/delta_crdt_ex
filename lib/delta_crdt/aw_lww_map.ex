@@ -62,10 +62,13 @@ defmodule DeltaCrdt.AWLWWMap do
         false
 
       [dot] ->
-        MapSet.member?(state.dots, dot) && !MapSet.disjoint?(state.keys, d.keys) &&
-          Enum.any?(Map.take(state.value, d.keys), fn
-            {_v, [^dot]} -> true
-            _ -> false
+        MapSet.member?(state.dots, dot) && !MapSet.disjoint?(d.keys, state.keys) &&
+          Enum.any?(d.keys, fn key ->
+            Map.get(state.value, key)
+            |> Enum.any?(fn
+              {_v, [^dot]} -> true
+              _ -> false
+            end)
           end)
     end
   end
@@ -112,12 +115,12 @@ defmodule DeltaCrdt.AWLWWMap do
     new_dots = MapSet.union(delta1.dots, delta2.dots)
     new_keys = MapSet.union(delta1.keys, delta2.keys)
 
-    join_or_map(delta1, delta2, [:join_or_map, :dot_set_join])
+    join_or_maps(delta1, delta2, [:join_or_maps, :join_dot_sets])
     |> Map.put(:dots, new_dots)
     |> Map.put(:keys, new_keys)
   end
 
-  def join_or_map(delta1, delta2, nested_joins \\ [:join, :dot_set_join]) do
+  def join_or_maps(delta1, delta2, nested_joins) do
     val1 = delta1.value
     val2 = delta2.value
 
@@ -167,7 +170,7 @@ defmodule DeltaCrdt.AWLWWMap do
     }
   end
 
-  def dot_set_join(%{value: s1, dots: c1}, %{value: s2, dots: c2}, []) do
+  def join_dot_sets(%{value: s1, dots: c1}, %{value: s2, dots: c2}, []) do
     s1 = MapSet.new(s1)
     s2 = MapSet.new(s2)
 
