@@ -1,125 +1,241 @@
 defmodule DeltaCrdt.AWLWWMap do
-  @opaque crdt_state :: CausalDotMap.t()
-  @opaque crdt_delta :: CausalDotMap.t()
-  @type key :: term()
-  @type value :: term()
-  @type node_id :: term()
-  @moduledoc """
-  An add-wins last-write-wins map.
+  defstruct keys: MapSet.new(),
+            dots: MapSet.new(),
+            value: %{}
 
-  This CRDT is an add-wins last-write-wins map. This means:
+  def new(), do: %__MODULE__{}
 
-  * The data structure is of a map. So you can store the following values:
+  def add(key, value, i, state) do
+    rem = remove(key, i, state)
 
-  ```
-  %{key: "value"}
-  %{"1" => %{another_map: "what!"}}
-  %{123 => {:a, :tuple}}
-  ```
-
-  * Both keys and values are of type `term()` (aka `any()`).
-
-  * Add-wins means that if there is a conflict between an add and a remove operation, the add operation will win out. This is in contrast to remove-wins, where the remove operation would win.
-
-  * Last-write-wins means that if there is a conflict between two write operations, the latest (as marked with a timestamp) will win. Underwater, every delta contains a timestamp which is used to resolve the conflicts.
-  """
-
-  alias DeltaCrdt.{CausalDotMap, AWSet, ORMap}
-
-  @doc "Convenience function to create an empty add-wins last-write-wins map"
-  @spec new() :: crdt_state()
-  def new(), do: %CausalDotMap{}
-
-  @doc "Add (or overwrite) a key-value pair to the map"
-  @spec add(key :: key(), val :: value(), i :: node_id(), crdt_state()) :: crdt_delta()
-  def add(key, val, i, map) do
-    {AWSet, :add, [{val, System.system_time(:nanosecond)}]}
-    |> ORMap.apply(key, i, map)
-  end
-
-  @doc "Remove a key and it's corresponding value from the map"
-  @spec remove(key :: key(), i :: node_id(), crdt_state()) :: crdt_delta()
-  def remove(key, i, map), do: ORMap.remove(key, i, map)
-
-  @doc "Remove all key-value pairs from the map"
-  @spec clear(node_id(), crdt_state()) :: crdt_delta()
-  def clear(i, map), do: ORMap.clear(i, map)
-
-  @doc """
-  Read the state of the map
-
-  **Note: this operation is expensive, so it's best not to call this more often than necessary.**
-  """
-  @spec read(map :: crdt_state()) :: map()
-  def read(%{state: map}) do
-    Map.new(map, fn {key, values} ->
-      {val, _ts} = Enum.max_by(Map.keys(values.state), fn {_val, ts} -> ts end)
-      {key, val}
-    end)
-  end
-
-  def strict_expansion?(state, delta) do
-    case DeltaCrdt.SemiLattice.bottom?(delta) do
-      true ->
-        check_remove_expansion(state, delta)
-
-      false ->
-        check_add_expansion(state, delta)
+    fn aw_set, context ->
+      aw_set_add(i, {value, System.system_time(:nanosecond)}, {aw_set, context})
     end
+    |> apply_op(key, state)
+    |> join(rem)
   end
 
-  defp check_add_expansion(state, delta) do
-    case MapSet.to_list(delta.causal_context.dots) do
-      [] ->
-        false
-
-      [{x, y}] ->
-        Map.get(state.causal_context.maxima, x, -1) < y
-    end
+  defp aw_set_add(i, el, {aw_set, c}) do
+    d = next_dot(i, c)
+    {%{el => [d]}, [d | Map.get(aw_set, el, [])]}
   end
 
-  defp check_remove_expansion(state, delta) do
-    case MapSet.to_list(delta.causal_context.dots) do
+  defp apply_op(op, key, %{value: m, dots: c}) do
+    {val, c_p} = op.(Map.get(m, key, %{}), c)
+
+    %__MODULE__{
+      dots: MapSet.new(c_p),
+      keys: MapSet.new([key]),
+      value: %{key => val}
+    }
+  end
+
+  def remove(key, _i, state) do
+    %{value: val} = state
+
+    to_remove_dots =
+      case Map.fetch(val, key) do
+        {:ok, value} -> Enum.flat_map(value, fn {_val, to_remove_dots} -> to_remove_dots end)
+        :error -> []
+      end
+
+    %__MODULE__{
+      dots: MapSet.new(to_remove_dots),
+      keys: MapSet.new([key]),
+      value: %{}
+    }
+  end
+
+  def clear(_i, state) do
+    Map.put(state, :value, %{})
+  end
+
+  def minimum_deltas(delta, state) do
+    join_decomposition(delta)
+    |> Enum.filter(fn delta -> expansion?(delta, state) end)
+  end
+
+  def expansion?(%{value: values} = d, state) when map_size(values) == 0 do
+    # check remove expansion
+    case Enum.to_list(d.dots) do
       [] ->
         false
 
       [dot] ->
-        Enum.filter(state.state, fn {key, _map} -> MapSet.member?(delta.keys, key) end)
-        |> Enum.any?(fn {_key, dot_map} ->
-          Enum.any?(dot_map.state, fn {_key, %{state: dot_set}} ->
-            MapSet.member?(dot_set, dot)
+        MapSet.member?(state.dots, dot) && !MapSet.disjoint?(d.keys, state.keys) &&
+          Map.take(state.value, d.keys)
+          |> Enum.any?(fn {_k, val} ->
+            Enum.any?(val, fn
+              {_v, [^dot]} -> true
+              _ -> false
+            end)
           end)
-        end)
     end
   end
 
-  def join_decomposition(delta) do
-    Enum.map(delta.causal_context.dots, fn dot ->
-      Enum.find(delta.state, fn {_key, dot_map} ->
-        Enum.find(dot_map.state, fn {_key, %{state: state}} ->
-          MapSet.member?(state, dot)
+  def expansion?(d, state) do
+    # check add expansion
+    case Enum.to_list(d.dots) do
+      [] -> false
+      [dot] -> !MapSet.member?(state.dots, dot)
+    end
+  end
+
+  def join_decomposition(%{value: val} = delta) do
+    dots_to_deltas =
+      Enum.flat_map(val, fn {key, dot_map} ->
+        Enum.flat_map(dot_map, fn {_key, dots} ->
+          Enum.map(dots, fn dot -> {dot, key} end)
         end)
       end)
-      |> case do
+      |> Map.new()
+
+    Enum.map(delta.dots, fn dot ->
+      case Map.get(dots_to_deltas, dot) do
         nil ->
-          %DeltaCrdt.CausalDotMap{
-            causal_context: DeltaCrdt.CausalContext.new([dot]),
-            state: %{},
-            keys: delta.keys
+          %__MODULE__{
+            dots: MapSet.new([dot]),
+            keys: delta.keys,
+            value: %{}
           }
 
-        {key, dots} ->
-          %DeltaCrdt.CausalDotMap{
-            causal_context: DeltaCrdt.CausalContext.new([dot]),
-            state: %{key => dots},
-            keys: MapSet.new([key])
+        key ->
+          dots = Map.get(val, key)
+
+          %__MODULE__{
+            dots: MapSet.new([dot]),
+            keys: MapSet.new([key]),
+            value: %{key => dots}
           }
       end
     end)
   end
 
-  def minimum_deltas(state, delta) do
-    join_decomposition(delta)
-    |> Enum.filter(fn d -> strict_expansion?(state, d) end)
+  def join(delta1, delta2) do
+    new_dots = MapSet.union(delta1.dots, delta2.dots)
+    new_keys = MapSet.union(delta1.keys, delta2.keys)
+
+    join_or_maps(delta1, delta2, [:join_or_maps, :join_dot_sets])
+    |> Map.put(:dots, new_dots)
+    |> Map.put(:keys, new_keys)
+  end
+
+  def join_or_maps(delta1, delta2, nested_joins) do
+    val1 = delta1.value
+    val2 = delta2.value
+
+    all_intersecting = Enum.empty?(delta1.keys) || Enum.empty?(delta2.keys)
+
+    intersecting_keys =
+      if all_intersecting do
+        # "no keys" means that we have to check every key
+        MapSet.new(Map.keys(val1) ++ Map.keys(val2))
+      else
+        MapSet.intersection(delta1.keys, delta2.keys)
+      end
+
+    resolved_conflicts =
+      Enum.flat_map(intersecting_keys, fn key ->
+        sub_delta1 =
+          Map.put(delta1, :value, Map.get(delta1.value, key, %{}))
+          |> Map.put(:keys, MapSet.new())
+
+        sub_delta2 =
+          Map.put(delta2, :value, Map.get(delta2.value, key, %{}))
+          |> Map.put(:keys, MapSet.new())
+
+        [next_join | other_joins] = nested_joins
+
+        %{value: new_sub} = apply(__MODULE__, next_join, [sub_delta1, sub_delta2, other_joins])
+
+        if Enum.empty?(new_sub) do
+          []
+        else
+          [{key, new_sub}]
+        end
+      end)
+      |> Map.new()
+
+    new_val =
+      if all_intersecting do
+        resolved_conflicts
+      else
+        Map.drop(delta1.value, intersecting_keys)
+        |> Map.merge(Map.drop(delta2.value, intersecting_keys))
+        |> Map.merge(resolved_conflicts)
+      end
+
+    %__MODULE__{
+      value: new_val
+    }
+  end
+
+  def join_dot_sets(%{value: s1, dots: c1}, %{value: s2, dots: c2}, []) do
+    s1 = MapSet.new(s1)
+    s2 = MapSet.new(s2)
+
+    new_s =
+      [
+        MapSet.intersection(s1, s2),
+        MapSet.difference(s1, c2),
+        MapSet.difference(s2, c1)
+      ]
+      |> Enum.reduce(&MapSet.union/2)
+      |> Enum.to_list()
+
+    %__MODULE__{value: new_s}
+  end
+
+  def read(%{value: values}) do
+    Map.new(values, fn {key, values} ->
+      {{val, _ts}, _c} = Enum.max_by(values, fn {{_val, ts}, _c} -> ts end)
+      {key, val}
+    end)
+  end
+
+  defmodule BinarySearch do
+    def binary_search(fun, min \\ 1, max \\ 100) when min <= max do
+      upper_bound = find_upper_bound(fun, max)
+      find_value(fun, min, upper_bound)
+    end
+
+    defp find_upper_bound(fun, max) do
+      case fun.(max) do
+        x when x < 0 ->
+          find_upper_bound(fun, max * 2)
+
+        x when x > 0 ->
+          max
+      end
+    end
+
+    defp find_value(_fun, min, min) do
+      min
+    end
+
+    defp find_value(fun, min, max) do
+      attempt = trunc(min + (max - min) / 2)
+
+      case fun.(attempt) do
+        x when x < 0 ->
+          find_value(fun, attempt + 1, max)
+
+        x when x > 0 ->
+          find_value(fun, min, attempt)
+      end
+    end
+  end
+
+  defp next_dot(i, c) do
+    next_max =
+      BinarySearch.binary_search(fn x ->
+        if MapSet.member?(c, {i, x}) do
+          -1
+        else
+          1
+        end
+      end)
+
+    {i, next_max}
   end
 end

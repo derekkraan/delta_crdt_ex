@@ -82,7 +82,7 @@ defmodule DeltaCrdt.CausalCrdt do
             delta_interval =
               Enum.map(deltas, fn {_i, {_from, delta}} -> delta end)
               |> Enum.reduce(fn delta, delta_interval ->
-                DeltaCrdt.SemiLattice.join(delta_interval, delta)
+                state.crdt_module.join(delta_interval, delta)
               end)
 
             send(neighbour, {:delta, {self(), neighbour, delta_interval}, state.sequence_number})
@@ -154,18 +154,47 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, %{state | outstanding_acks: outstanding_acks}}
   end
 
-  def handle_info({:delta, {neighbour, self_ref, delta_interval}, n}, state) do
-    %{causal_context: delta_c} = delta_interval
-    %{crdt_state: %{causal_context: c}} = state
+  defp max_dots(dots) do
+    Enum.reduce(dots, %{}, fn {node_id, val}, map ->
+      Map.update(map, node_id, val, fn
+        old_val when old_val < val -> val
+        old_val -> old_val
+      end)
+    end)
+  end
 
-    if(DeltaCrdt.AntiEntropy.is_strict_expansion(c, delta_c)) do
+  defp min_dots(dots) do
+    Enum.reduce(dots, %{}, fn {node_id, val}, map ->
+      Map.update(map, node_id, val, fn
+        old_val when old_val > val -> val
+        old_val -> old_val
+      end)
+    end)
+  end
+
+  def handle_info({:delta, {neighbour, self_ref, delta_interval}, n}, state) do
+    %{dots: delta_dots} = delta_interval
+    %{crdt_state: %{dots: state_dots}} = state
+
+    max_state_dots = max_dots(state_dots)
+
+    # TODO extract this functionality and test it better
+    strict_expansion =
+      Enum.all?(min_dots(delta_dots), fn {node_id, min} ->
+        min <= Map.get(max_state_dots, node_id, 0) + 1
+      end)
+
+    if strict_expansion do
       send(neighbour, {:ack, self_ref, n})
 
       new_state = apply_delta_interval(state, neighbour, delta_interval)
       {:noreply, new_state}
     else
+      # TODO we need to reset ourselves to trigger getting full deltas from all neighbours
       Logger.debug(fn ->
-        "not applying delta interval #{inspect({c, delta_c})} from #{inspect(neighbour)} because delta interval is not a strict expansion"
+        "not applying delta interval #{inspect({state_dots, delta_dots})} from #{
+          inspect(neighbour)
+        } because delta interval is not a strict expansion"
       end)
 
       {:noreply, state}
@@ -221,7 +250,6 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_call(:garbage_collect_deltas, _from, state) do
-    compressed_crdt_state = DeltaCrdt.SemiLattice.compress(state.crdt_state)
     pid = self()
 
     neighbours =
@@ -231,7 +259,7 @@ defmodule DeltaCrdt.CausalCrdt do
       end)
 
     if Enum.empty?(neighbours) do
-      {:reply, :ok, %{state | deltas: %{}, crdt_state: compressed_crdt_state}}
+      {:reply, :ok, %{state | deltas: %{}}}
     else
       l =
         state.neighbours
@@ -240,7 +268,7 @@ defmodule DeltaCrdt.CausalCrdt do
         |> Enum.min(fn -> 0 end)
 
       new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Map.new()
-      {:reply, :ok, %{state | deltas: new_deltas, crdt_state: compressed_crdt_state}}
+      {:reply, :ok, %{state | deltas: new_deltas}}
     end
   end
 
@@ -266,11 +294,6 @@ defmodule DeltaCrdt.CausalCrdt do
   def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),
     do: {:reply, {crdt_module, crdt_state}, state}
 
-  def handle_call({:read, module}, _from, state) do
-    ret = apply(module, :read, [state.crdt_state])
-    {:reply, ret, state}
-  end
-
   def handle_call({:operation, operation}, _from, state) do
     {:reply, :ok, handle_operation(operation, state)}
   end
@@ -282,14 +305,14 @@ defmodule DeltaCrdt.CausalCrdt do
   defp handle_operation({function, args}, state) do
     delta = apply(state.crdt_module, function, args ++ [state.node_id, state.crdt_state])
 
-    case state.crdt_module.minimum_deltas(state.crdt_state, delta) do
+    case state.crdt_module.minimum_deltas(delta, state.crdt_state) do
       [] ->
         state
 
       minimum_deltas ->
-        delta = Enum.reduce(minimum_deltas, &DeltaCrdt.SemiLattice.join/2)
+        delta = Enum.reduce(minimum_deltas, &state.crdt_module.join/2)
 
-        new_crdt_state = DeltaCrdt.SemiLattice.join(state.crdt_state, delta)
+        new_crdt_state = state.crdt_module.join(state.crdt_state, delta)
         new_deltas = Map.put(state.deltas, state.sequence_number, {self(), delta})
         new_sequence_number = state.sequence_number + 1
 
@@ -306,14 +329,14 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp apply_delta_interval(state, neighbour, delta_interval) do
-    case state.crdt_module.minimum_deltas(state.crdt_state, delta_interval) do
+    case state.crdt_module.minimum_deltas(delta_interval, state.crdt_state) do
       [] ->
         state
 
       minimum_deltas ->
-        delta = Enum.reduce(minimum_deltas, &DeltaCrdt.SemiLattice.join/2)
+        delta = Enum.reduce(minimum_deltas, &state.crdt_module.join/2)
 
-        new_crdt_state = DeltaCrdt.SemiLattice.join(state.crdt_state, delta)
+        new_crdt_state = state.crdt_module.join(state.crdt_state, delta)
         new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, delta})
         new_sequence_number = state.sequence_number + 1
 

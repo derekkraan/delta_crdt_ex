@@ -1,5 +1,5 @@
 defmodule AWLWWMapTest do
-  alias DeltaCrdt.{AWLWWMap, SemiLattice}
+  alias DeltaCrdt.AWLWWMap
   use ExUnit.Case, async: true
   use ExUnitProperties
 
@@ -21,7 +21,7 @@ defmodule AWLWWMapTest do
                 val <- term(),
                 node_id <- term() do
         assert %{key => val} ==
-                 SemiLattice.join(AWLWWMap.new(), AWLWWMap.add(key, val, node_id, AWLWWMap.new()))
+                 AWLWWMap.join(AWLWWMap.new(), AWLWWMap.add(key, val, node_id, AWLWWMap.new()))
                  |> AWLWWMap.read()
       end
     end
@@ -33,10 +33,10 @@ defmodule AWLWWMapTest do
         operations
         |> Enum.reduce(AWLWWMap.new(), fn
           {:add, key, val, node_id}, map ->
-            SemiLattice.join(map, AWLWWMap.add(key, val, node_id, map))
+            AWLWWMap.join(map, AWLWWMap.add(key, val, node_id, map))
 
           {:remove, key, _val, node_id}, map ->
-            SemiLattice.join(map, AWLWWMap.remove(key, node_id, map))
+            AWLWWMap.join(map, AWLWWMap.remove(key, node_id, map))
         end)
         |> AWLWWMap.read()
 
@@ -60,10 +60,10 @@ defmodule AWLWWMapTest do
                 val <- term(),
                 node_id <- term() do
         crdt = AWLWWMap.new()
-        crdt = SemiLattice.join(crdt, AWLWWMap.add(key, val, node_id, crdt))
+        crdt = AWLWWMap.join(crdt, AWLWWMap.add(key, val, node_id, crdt))
 
         crdt =
-          SemiLattice.join(crdt, AWLWWMap.remove(key, node_id, crdt))
+          AWLWWMap.join(crdt, AWLWWMap.remove(key, node_id, crdt))
           |> AWLWWMap.read()
 
         assert %{} == crdt
@@ -79,25 +79,20 @@ defmodule AWLWWMapTest do
           Enum.reduce(ops, AWLWWMap.new(), fn
             {:add, key, val, node_id}, map ->
               AWLWWMap.add(key, val, node_id, map)
-              |> SemiLattice.join(map)
+              |> AWLWWMap.join(map)
 
             {:remove, key, _val, node_id}, map ->
               AWLWWMap.remove(key, node_id, map)
-              |> SemiLattice.join(map)
+              |> AWLWWMap.join(map)
           end)
 
         cleared_map =
           AWLWWMap.clear(node_id, populated_map)
-          |> SemiLattice.join(populated_map)
+          |> AWLWWMap.join(populated_map)
           |> AWLWWMap.read()
 
         assert %{} == cleared_map
       end
-    end
-  end
-
-  describe ".start_link/2" do
-    test "starts a causal CRDT process" do
     end
   end
 
@@ -108,14 +103,14 @@ defmodule AWLWWMapTest do
         joined_delta =
           Enum.reduce(ops, AWLWWMap.new(), fn op, st ->
             delta = op.(st)
-            SemiLattice.join(st, delta)
+            AWLWWMap.join(st, delta)
           end)
 
         # decompose delta
         decomposed_ops = AWLWWMap.join_decomposition(joined_delta)
 
         Enum.each(decomposed_ops, fn op ->
-          assert 1 = MapSet.size(op.causal_context.dots)
+          assert 1 = MapSet.size(op.dots)
         end)
       end
     end
@@ -125,35 +120,37 @@ defmodule AWLWWMapTest do
         joined_delta =
           Enum.reduce(ops, AWLWWMap.new(), fn op, st ->
             delta = op.(st)
-            SemiLattice.join(st, delta)
+            AWLWWMap.join(st, delta)
           end)
 
         decomposed_ops = AWLWWMap.join_decomposition(joined_delta)
 
-        rejoined_delta = Enum.reduce(decomposed_ops, AWLWWMap.new(), &SemiLattice.join/2)
+        rejoined_delta = Enum.reduce(decomposed_ops, AWLWWMap.new(), &AWLWWMap.join/2)
 
         assert Map.equal?(AWLWWMap.read(rejoined_delta), AWLWWMap.read(joined_delta))
       end
     end
   end
 
-  describe ".strict_expansion?/2" do
+  describe ".expansion?/2" do
     property "no operation is a strict expansion of itself" do
       check all op <- AWLWWMapProperty.random_operation() do
         op = op.(AWLWWMap.new())
 
-        assert false == AWLWWMap.strict_expansion?(op, op)
+        assert false == AWLWWMap.expansion?(op, op)
       end
     end
 
     property "operation can be applied and then is no longer strict expansion" do
-      check all [op1, op2] <- list_of(AWLWWMapProperty.random_operation(), length: 2) do
+      check all [op1, op2] <- list_of(AWLWWMapProperty.random_operation(), length: 2),
+                max_run_time: 2000,
+                max_runs: 2000 do
         op1 = op1.(AWLWWMap.new())
         op2 = op2.(op1)
-        state = SemiLattice.join(op1, op2)
+        state = AWLWWMap.join(op1, op2)
 
         Enum.each(AWLWWMap.join_decomposition(op2), fn op ->
-          assert false == AWLWWMap.strict_expansion?(state, op)
+          assert false == AWLWWMap.expansion?(op, state)
         end)
       end
     end
