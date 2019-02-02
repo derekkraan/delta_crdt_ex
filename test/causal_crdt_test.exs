@@ -35,9 +35,9 @@ defmodule CausalCrdtTest do
     assert %{"Derek" => "Kraan"} == DeltaCrdt.read(context.c2)
     assert %{"Derek" => "Kraan"} == DeltaCrdt.read(context.c3)
 
-    GenServer.call(context.c1, :garbage_collect_deltas)
-    GenServer.call(context.c2, :garbage_collect_deltas)
-    GenServer.call(context.c3, :garbage_collect_deltas)
+    GenServer.call(context.c1, :garbage_collect)
+    GenServer.call(context.c2, :garbage_collect)
+    GenServer.call(context.c3, :garbage_collect)
 
     assert 0 = GenServer.call(context.c1, :delta_count)
     assert 0 = GenServer.call(context.c2, :delta_count)
@@ -51,7 +51,7 @@ defmodule CausalCrdtTest do
     DeltaCrdt.add_neighbours(c1, [c1])
 
     DeltaCrdt.mutate_async(c1, :add, ["Derek", "Kraan"])
-    GenServer.call(c1, :garbage_collect_deltas)
+    GenServer.call(c1, :garbage_collect)
     assert 0 = GenServer.call(c1, :delta_count)
   end
 
@@ -140,8 +140,8 @@ defmodule CausalCrdtTest do
     assert Map.has_key?(DeltaCrdt.read(c1), "CRDTa")
     refute Map.has_key?(DeltaCrdt.read(c2), "CRDTa")
 
-    GenServer.call(c1, :garbage_collect_deltas)
-    GenServer.call(c2, :garbage_collect_deltas)
+    GenServer.call(c1, :garbage_collect)
+    GenServer.call(c2, :garbage_collect)
 
     # make them neighbours again
     DeltaCrdt.add_neighbours(c1, [c2])

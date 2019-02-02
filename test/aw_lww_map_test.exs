@@ -1,9 +1,67 @@
-defmodule AWLWWMapTest do
-  alias DeltaCrdt.AWLWWMap
-  use ExUnit.Case, async: true
+defmodule NewAWLWWMapTest do
+  use ExUnit.Case
   use ExUnitProperties
 
-  setup do
+  alias DeltaCrdt.AWLWWMap
+
+  test "can add and read a value" do
+    assert %{1 => 2} =
+             AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+             |> AWLWWMap.read()
+  end
+
+  test "can join two adds" do
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    add2 = AWLWWMap.add(2, 2, :foo_node, add1)
+
+    assert %{1 => 2, 2 => 2} =
+             AWLWWMap.join(add1, add2)
+             |> AWLWWMap.read()
+  end
+
+  test "can remove elements" do
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    remove1 = AWLWWMap.remove(1, :foo_node, add1)
+
+    assert %{} =
+             AWLWWMap.join(add1, remove1)
+             |> AWLWWMap.read()
+  end
+
+  test "can resolve conflicts" do
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    add2 = AWLWWMap.add(1, 3, :foo_node, add1)
+
+    # TODO assert that the state doesn't include anything about value 2
+
+    assert %{1 => 3} =
+             AWLWWMap.join(add1, add2)
+             |> AWLWWMap.read()
+  end
+
+  test "can compute minimum deltas" do
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    change1 = AWLWWMap.add(1, 3, :foo_node, add1)
+    remove1 = AWLWWMap.remove(1, :foo_node, add1)
+    remove2 = AWLWWMap.remove(2, :foo_node, add1)
+
+    assert [] = AWLWWMap.minimum_deltas(add1, add1)
+    refute Enum.member?(AWLWWMap.minimum_deltas(change1, add1), add1)
+
+    assert [remove1] = AWLWWMap.minimum_deltas(remove1, add1)
+    assert [] = AWLWWMap.minimum_deltas(remove2, add1)
+  end
+
+  test "can compute actual dots present" do
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    change1 = AWLWWMap.add(1, 3, :foo_node, add1)
+
+    final = AWLWWMap.join(add1, change1)
+
+    assert 1 = MapSet.size(AWLWWMap.garbage_collect(final) |> Map.get(:dots))
+  end
+
+  property "arbitrary add and remove sequence results in correct map" do
     operation_gen =
       ExUnitProperties.gen all op <- StreamData.member_of([:add, :remove]),
                                node_id <- term(),
@@ -12,31 +70,17 @@ defmodule AWLWWMapTest do
         {op, key, value, node_id}
       end
 
-    [operation_gen: operation_gen]
-  end
-
-  describe ".add/4" do
-    property "can add an element" do
-      check all key <- term(),
-                val <- term(),
-                node_id <- term() do
-        assert %{key => val} ==
-                 AWLWWMap.join(AWLWWMap.new(), AWLWWMap.add(key, val, node_id, AWLWWMap.new()))
-                 |> AWLWWMap.read()
-      end
-    end
-  end
-
-  property "arbitrary add and remove sequence results in correct map", context do
-    check all operations <- list_of(context.operation_gen) do
+    check all operations <- list_of(operation_gen) do
       actual_result =
         operations
         |> Enum.reduce(AWLWWMap.new(), fn
           {:add, key, val, node_id}, map ->
-            AWLWWMap.join(map, AWLWWMap.add(key, val, node_id, map))
+            AWLWWMap.add(key, val, node_id, map)
+            |> AWLWWMap.join(map)
 
           {:remove, key, _val, node_id}, map ->
-            AWLWWMap.join(map, AWLWWMap.remove(key, node_id, map))
+            AWLWWMap.remove(key, node_id, map)
+            |> AWLWWMap.join(map)
         end)
         |> AWLWWMap.read()
 
@@ -51,108 +95,6 @@ defmodule AWLWWMapTest do
         end)
 
       assert actual_result == correct_result
-    end
-  end
-
-  describe ".remove/3" do
-    property "can remove an element" do
-      check all key <- term(),
-                val <- term(),
-                node_id <- term() do
-        crdt = AWLWWMap.new()
-        crdt = AWLWWMap.join(crdt, AWLWWMap.add(key, val, node_id, crdt))
-
-        crdt =
-          AWLWWMap.join(crdt, AWLWWMap.remove(key, node_id, crdt))
-          |> AWLWWMap.read()
-
-        assert %{} == crdt
-      end
-    end
-  end
-
-  describe ".clear/2" do
-    property "removes all elements from the map", context do
-      check all ops <- list_of(context.operation_gen),
-                node_id <- term() do
-        populated_map =
-          Enum.reduce(ops, AWLWWMap.new(), fn
-            {:add, key, val, node_id}, map ->
-              AWLWWMap.add(key, val, node_id, map)
-              |> AWLWWMap.join(map)
-
-            {:remove, key, _val, node_id}, map ->
-              AWLWWMap.remove(key, node_id, map)
-              |> AWLWWMap.join(map)
-          end)
-
-        cleared_map =
-          AWLWWMap.clear(node_id, populated_map)
-          |> AWLWWMap.join(populated_map)
-          |> AWLWWMap.read()
-
-        assert %{} == cleared_map
-      end
-    end
-  end
-
-  describe ".join_decomposition/1" do
-    property "join decomposition has one dot per decomposed delta" do
-      check all ops <- list_of(AWLWWMapProperty.random_operation()) do
-        # make 1 delta
-        joined_delta =
-          Enum.reduce(ops, AWLWWMap.new(), fn op, st ->
-            delta = op.(st)
-            AWLWWMap.join(st, delta)
-          end)
-
-        # decompose delta
-        decomposed_ops = AWLWWMap.join_decomposition(joined_delta)
-
-        Enum.each(decomposed_ops, fn op ->
-          assert 1 = MapSet.size(op.dots)
-        end)
-      end
-    end
-
-    property "join decomposition when joined returns itself" do
-      check all ops <- list_of(AWLWWMapProperty.random_operation()) do
-        joined_delta =
-          Enum.reduce(ops, AWLWWMap.new(), fn op, st ->
-            delta = op.(st)
-            AWLWWMap.join(st, delta)
-          end)
-
-        decomposed_ops = AWLWWMap.join_decomposition(joined_delta)
-
-        rejoined_delta = Enum.reduce(decomposed_ops, AWLWWMap.new(), &AWLWWMap.join/2)
-
-        assert Map.equal?(AWLWWMap.read(rejoined_delta), AWLWWMap.read(joined_delta))
-      end
-    end
-  end
-
-  describe ".expansion?/2" do
-    property "no operation is a strict expansion of itself" do
-      check all op <- AWLWWMapProperty.random_operation() do
-        op = op.(AWLWWMap.new())
-
-        assert false == AWLWWMap.expansion?(op, op)
-      end
-    end
-
-    property "operation can be applied and then is no longer strict expansion" do
-      check all [op1, op2] <- list_of(AWLWWMapProperty.random_operation(), length: 2),
-                max_run_time: 2000,
-                max_runs: 2000 do
-        op1 = op1.(AWLWWMap.new())
-        op2 = op2.(op1)
-        state = AWLWWMap.join(op1, op2)
-
-        Enum.each(AWLWWMap.join_decomposition(op2), fn op ->
-          assert false == AWLWWMap.expansion?(op, state)
-        end)
-      end
     end
   end
 end

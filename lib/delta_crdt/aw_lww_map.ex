@@ -15,6 +15,18 @@ defmodule DeltaCrdt.AWLWWMap do
     |> join(rem)
   end
 
+  def garbage_collect(state) do
+    %{state | dots: compressed_dots(state)}
+  end
+
+  defp compressed_dots(%{value: value}) do
+    Enum.flat_map(value, fn {_k, values} ->
+      Map.values(values)
+      |> Enum.flat_map(fn x -> x end)
+    end)
+    |> MapSet.new()
+  end
+
   defp aw_set_add(i, el, {aw_set, c}) do
     d = next_dot(i, c)
     {%{el => [d]}, [d | Map.get(aw_set, el, [])]}
