@@ -26,7 +26,7 @@ Here's a short example to illustrate adding an entry to a map:
 {:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap)
 
 # make them aware of each other
-DeltaCrdt.add_neighbours(crdt1, [crdt2])
+DeltaCrdt.set_neighbours(crdt1, [crdt2])
 
 # show the initial value
 DeltaCrdt.read(crdt1)

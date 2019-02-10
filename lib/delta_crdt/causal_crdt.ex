@@ -17,8 +17,6 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defstruct node_id: nil,
             notify: nil,
-            neighbours: MapSet.new(),
-            neighbour_refs: %{},
             storage_module: nil,
             crdt_module: nil,
             crdt_state: nil,
@@ -27,6 +25,7 @@ defmodule DeltaCrdt.CausalCrdt do
             ship_debounce: 0,
             deltas: %{},
             ack_map: %{},
+            neighbours: MapSet.new(),
             outstanding_acks: %{}
 
   ### GenServer callbacks
@@ -152,35 +151,22 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
 
-  ### this function is only used for testing purposes.
-  def handle_info(:forget_neighbours, state) do
-    new_state =
-      Enum.reduce(state.neighbour_refs, state, fn {_ref, pid}, state ->
-        forget_neighbour(state, pid)
+  def handle_info({:set_neighbours, neighbours}, state) do
+    state = %{state | neighbours: MapSet.new(neighbours)}
+
+    new_ack_map =
+      Enum.filter(state.ack_map, fn {neighbour, _seq} ->
+        MapSet.member?(state.neighbours, neighbour)
       end)
+      |> Map.new()
 
-    {:noreply, new_state}
-  end
+    new_outstanding_acks =
+      Enum.filter(state.outstanding_acks, fn {neighbour, _ack} ->
+        MapSet.member?(state.neighbours, neighbour)
+      end)
+      |> Map.new()
 
-  def handle_info({:DOWN, ref, :process, _object, _reason}, state) do
-    new_state =
-      case Map.pop(state.neighbour_refs, ref) do
-        {nil, _neighbour_refs} ->
-          state
-
-        {pid, neighbour_refs} ->
-          Map.put(state, :neighbour_refs, neighbour_refs)
-          |> forget_neighbour(pid)
-      end
-
-    {:noreply, new_state}
-  end
-
-  def handle_info({:add_neighbours, pids}, state) do
-    state = monitor_neighbours(pids, state)
-
-    new_neighbours = pids |> MapSet.new() |> MapSet.union(state.neighbours)
-    state = %{state | neighbours: new_neighbours}
+    state = %{state | ack_map: new_ack_map, outstanding_acks: new_outstanding_acks}
 
     outstanding_acks = sync_interval_or_state_to_all(state)
 
@@ -211,10 +197,11 @@ defmodule DeltaCrdt.CausalCrdt do
         } from #{inspect(neighbour)}"
       )
 
-      new_state = Map.put(state, :crdt_state, state.crdt_module.new())
-
-      Map.put(:sequence_number, 0)
-      |> write_to_storage()
+      # in order to come back up in a clean state we will write to storage with a new state
+      new_state =
+        Map.put(state, :crdt_state, state.crdt_module.new())
+        |> Map.put(:sequence_number, 0)
+        |> write_to_storage()
 
       {:stop, "invalid delta", new_state}
     end
@@ -409,15 +396,5 @@ defmodule DeltaCrdt.CausalCrdt do
       nil -> GenServer.reply(reply_to, :ok)
       loc -> send(loc, {msg, reply_to})
     end
-  end
-
-  defp monitor_neighbours(pids, state) do
-    new_refs =
-      pids
-      |> MapSet.new()
-      |> MapSet.difference(state.neighbours)
-      |> Map.new(fn pid -> {Process.monitor(pid), pid} end)
-
-    %{state | neighbour_refs: Map.merge(state.neighbour_refs, new_refs)}
   end
 end

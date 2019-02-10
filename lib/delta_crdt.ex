@@ -17,7 +17,7 @@ defmodule DeltaCrdt do
   ```
   iex> {:ok, crdt1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 3)
   iex> {:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 3)
-  iex> DeltaCrdt.add_neighbours(crdt1, [crdt2])
+  iex> DeltaCrdt.set_neighbours(crdt1, [crdt2])
   iex> DeltaCrdt.read(crdt1)
   %{}
   iex> DeltaCrdt.mutate(crdt1, :add, ["CRDT", "is magic!"])
@@ -90,14 +90,14 @@ defmodule DeltaCrdt do
 
   **Note: this sets up a unidirectional sync, so if you want bidirectional syncing (which is normally desirable), then you must call this function twice (or thrice for 3 nodes, etc):**
   ```
-  DeltaCrdt.add_neighbours(c1, [c2, c3])
-  DeltaCrdt.add_neighbours(c2, [c1, c3])
-  DeltaCrdt.add_neighbours(c3, [c1, c2])
+  DeltaCrdt.set_neighbours(c1, [c2, c3])
+  DeltaCrdt.set_neighbours(c2, [c1, c3])
+  DeltaCrdt.set_neighbours(c3, [c1, c2])
   ```
   """
-  @spec add_neighbours(crdt :: GenServer.server(), neighbours :: list(GenServer.server())) :: :ok
-  def add_neighbours(crdt, neighbours) when is_list(neighbours) do
-    send(crdt, {:add_neighbours, neighbours})
+  @spec set_neighbours(crdt :: GenServer.server(), neighbours :: list(GenServer.server())) :: :ok
+  def set_neighbours(crdt, neighbours) when is_list(neighbours) do
+    send(crdt, {:set_neighbours, neighbours})
     :ok
   end
 

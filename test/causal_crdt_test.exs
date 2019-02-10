@@ -14,9 +14,9 @@ defmodule CausalCrdtTest do
     {:ok, c3} =
       DeltaCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
 
-    DeltaCrdt.add_neighbours(c1, [c1, c2, c3])
-    DeltaCrdt.add_neighbours(c2, [c1, c2, c3])
-    DeltaCrdt.add_neighbours(c3, [c1, c2, c3])
+    DeltaCrdt.set_neighbours(c1, [c1, c2, c3])
+    DeltaCrdt.set_neighbours(c2, [c1, c2, c3])
+    DeltaCrdt.set_neighbours(c3, [c1, c2, c3])
     [c1: c1, c2: c2, c3: c3]
   end
 
@@ -48,7 +48,7 @@ defmodule CausalCrdtTest do
     {:ok, c1} =
       DeltaCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
 
-    DeltaCrdt.add_neighbours(c1, [c1])
+    DeltaCrdt.set_neighbours(c1, [c1])
 
     DeltaCrdt.mutate_async(c1, :add, ["Derek", "Kraan"])
     GenServer.call(c1, :garbage_collect)
@@ -112,7 +112,7 @@ defmodule CausalCrdtTest do
     {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
     DeltaCrdt.mutate(c1, :add, ["CRDT1", "represent"])
     DeltaCrdt.mutate(c2, :add, ["CRDT2", "also here"])
-    DeltaCrdt.add_neighbours(c1, [c2])
+    DeltaCrdt.set_neighbours(c1, [c2])
     Process.sleep(100)
     assert %{} = DeltaCrdt.read(c1)
   end
@@ -120,16 +120,16 @@ defmodule CausalCrdtTest do
   test "can sync after network partition" do
     {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
     {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
-    DeltaCrdt.add_neighbours(c1, [c2])
-    DeltaCrdt.add_neighbours(c2, [c1])
+    DeltaCrdt.set_neighbours(c1, [c2])
+    DeltaCrdt.set_neighbours(c2, [c1])
     DeltaCrdt.mutate(c1, :add, ["CRDT1", "represent"])
     DeltaCrdt.mutate(c2, :add, ["CRDT2", "also here"])
     Process.sleep(100)
     assert %{"CRDT1" => "represent", "CRDT2" => "also here"} = DeltaCrdt.read(c1)
 
     # uncouple them
-    send(c1, :forget_neighbours)
-    send(c2, :forget_neighbours)
+    DeltaCrdt.set_neighbours(c1, [])
+    DeltaCrdt.set_neighbours(c2, [])
 
     DeltaCrdt.mutate(c1, :add, ["CRDTa", "only present in 1"])
     DeltaCrdt.mutate(c1, :add, ["CRDTb", "only present in 1"])
@@ -144,8 +144,8 @@ defmodule CausalCrdtTest do
     GenServer.call(c2, :garbage_collect)
 
     # make them neighbours again
-    DeltaCrdt.add_neighbours(c1, [c2])
-    DeltaCrdt.add_neighbours(c2, [c1])
+    DeltaCrdt.set_neighbours(c1, [c2])
+    DeltaCrdt.set_neighbours(c2, [c1])
 
     Process.sleep(1000)
 
