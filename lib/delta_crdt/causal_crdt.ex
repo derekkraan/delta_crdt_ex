@@ -177,11 +177,13 @@ defmodule DeltaCrdt.CausalCrdt do
     %{dots: delta_dots} = delta_interval
     %{crdt_state: %{dots: state_dots}} = state
 
-    max_state_dots = max_dots(state_dots)
+    dot_store = Module.concat(state.crdt_module, DotStore)
+
+    max_state_dots = dot_store.max_dots(state_dots)
 
     # TODO extract this functionality and test it better
     strict_expansion =
-      Enum.all?(min_dots(delta_dots), fn {node_id, min} ->
+      Enum.all?(dot_store.min_dots(delta_dots), fn {node_id, min} ->
         min <= Map.get(max_state_dots, node_id, 0) + 1
       end)
 
@@ -312,24 +314,6 @@ defmodule DeltaCrdt.CausalCrdt do
         |> Map.put(:sequence_number, new_sequence_number)
         |> write_to_storage()
     end
-  end
-
-  defp max_dots(dots) do
-    Enum.reduce(dots, %{}, fn {node_id, val}, map ->
-      Map.update(map, node_id, val, fn
-        old_val when old_val < val -> val
-        old_val -> old_val
-      end)
-    end)
-  end
-
-  defp min_dots(dots) do
-    Enum.reduce(dots, %{}, fn {node_id, val}, map ->
-      Map.update(map, node_id, val, fn
-        old_val when old_val > val -> val
-        old_val -> old_val
-      end)
-    end)
   end
 
   defp garbage_collect_crdt_state(state) do

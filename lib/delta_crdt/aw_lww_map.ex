@@ -3,6 +3,85 @@ defmodule DeltaCrdt.AWLWWMap do
             dots: MapSet.new(),
             value: %{}
 
+  defmodule DotStore do
+    def compress(dots, dots2 \\ %{}) do
+      Enum.reduce(dots, dots2, fn {c, i}, dots_map ->
+        Map.update(dots_map, c, i, fn
+          x when x > i -> x
+          _x -> i
+        end)
+      end)
+    end
+
+    def decompress(dots = %MapSet{}), do: dots
+
+    def decompress(dots) do
+      Enum.flat_map(dots, fn {c, i} ->
+        Enum.map(1..i, fn x -> {c, x} end)
+      end)
+      |> MapSet.new()
+    end
+
+    def union(dots1 = %MapSet{}, dots2 = %MapSet{}) do
+      MapSet.union(dots1, dots2)
+    end
+
+    def union(dots1, dots2) do
+      compress(dots1, compress(dots2))
+    end
+
+    def member?(dots = %MapSet{}, dot) do
+      MapSet.member?(dots, dot)
+    end
+
+    def member?(dots, {c, i}) do
+      Map.get(dots, c, 0) >= i
+    end
+
+    def intersection(dots1 = %MapSet{}, dots2 = %MapSet{}) do
+      MapSet.intersection(dots1, dots2)
+    end
+
+    def intersection(dots1 = %MapSet{}, dots2) do
+      intersection(dots1, decompress(dots2))
+    end
+
+    def intersection(dots1, dots2 = %MapSet{}) do
+      intersection(dots2, dots1)
+    end
+
+    def intersection(dots1, dots2) do
+      Enum.reduce(dots1, dots2, fn {c, i}, new_dots ->
+        Map.update(new_dots, c, i, fn
+          x when x < i -> x
+          _x -> i
+        end)
+      end)
+    end
+
+    def max_dots(dots) do
+      Enum.reduce(dots, %{}, fn {node_id, val}, map ->
+        Map.update(map, node_id, val, fn
+          old_val when old_val < val -> val
+          old_val -> old_val
+        end)
+      end)
+    end
+
+    def min_dots(dots = %MapSet{}) do
+      Enum.reduce(dots, %{}, fn {node_id, val}, map ->
+        Map.update(map, node_id, val, fn
+          old_val when old_val > val -> val
+          old_val -> old_val
+        end)
+      end)
+    end
+
+    def min_dots(dots) do
+      Map.new(dots, fn {c, _i} -> {c, 1} end)
+    end
+  end
+
   def new(), do: %__MODULE__{}
 
   def add(key, value, i, state) do
@@ -16,15 +95,7 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def garbage_collect(state) do
-    %{state | dots: compressed_dots(state)}
-  end
-
-  defp compressed_dots(%{value: value}) do
-    Enum.flat_map(value, fn {_k, values} ->
-      Map.values(values)
-      |> Enum.flat_map(fn x -> x end)
-    end)
-    |> MapSet.new()
+    %{state | dots: DotStore.compress(state.dots)}
   end
 
   defp aw_set_add(i, el, {aw_set, c}) do
@@ -74,7 +145,7 @@ defmodule DeltaCrdt.AWLWWMap do
         false
 
       [dot] ->
-        MapSet.member?(state.dots, dot) && !MapSet.disjoint?(d.keys, state.keys) &&
+        DotStore.member?(state.dots, dot) && !MapSet.disjoint?(d.keys, state.keys) &&
           Map.take(state.value, d.keys)
           |> Enum.any?(fn {_k, val} ->
             Enum.any?(val, fn
@@ -89,7 +160,7 @@ defmodule DeltaCrdt.AWLWWMap do
     # check add expansion
     case Enum.to_list(d.dots) do
       [] -> false
-      [dot] -> !MapSet.member?(state.dots, dot)
+      [dot] -> !DotStore.member?(state.dots, dot)
     end
   end
 
@@ -102,7 +173,7 @@ defmodule DeltaCrdt.AWLWWMap do
       end)
       |> Map.new()
 
-    Enum.map(delta.dots, fn dot ->
+    Enum.map(DotStore.decompress(delta.dots), fn dot ->
       case Map.get(dots_to_deltas, dot) do
         nil ->
           %__MODULE__{
@@ -124,7 +195,7 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def join(delta1, delta2) do
-    new_dots = MapSet.union(delta1.dots, delta2.dots)
+    new_dots = DotStore.union(delta1.dots, delta2.dots)
     new_keys = MapSet.union(delta1.keys, delta2.keys)
 
     join_or_maps(delta1, delta2, [:join_or_maps, :join_dot_sets])
@@ -185,6 +256,9 @@ defmodule DeltaCrdt.AWLWWMap do
   def join_dot_sets(%{value: s1, dots: c1}, %{value: s2, dots: c2}, []) do
     s1 = MapSet.new(s1)
     s2 = MapSet.new(s2)
+
+    c1 = DotStore.decompress(c1)
+    c2 = DotStore.decompress(c2)
 
     new_s =
       [
