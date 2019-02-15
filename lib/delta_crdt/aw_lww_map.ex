@@ -4,9 +4,9 @@ defmodule DeltaCrdt.AWLWWMap do
             value: %{}
 
   defmodule DotStore do
-    def compress(dots, dots2 \\ %{}) do
-      Enum.reduce(dots, dots2, fn {c, i}, dots_map ->
-        Map.update(dots_map, c, i, fn
+    def compress(dots) do
+      Enum.reduce(dots, %{}, fn {c, i}, new_dots ->
+        Map.update(new_dots, c, i, fn
           x when x > i -> x
           _x -> i
         end)
@@ -26,8 +26,17 @@ defmodule DeltaCrdt.AWLWWMap do
       MapSet.union(dots1, dots2)
     end
 
+    def union(dots1, dots2 = %MapSet{}) do
+      union(dots2, dots1)
+    end
+
     def union(dots1, dots2) do
-      compress(dots1, compress(dots2))
+      Enum.reduce(dots1, dots2, fn {c, i}, new_dots ->
+        Map.update(new_dots, c, i, fn
+          x when x > i -> x
+          _x -> i
+        end)
+      end)
     end
 
     def member?(dots = %MapSet{}, dot) do
@@ -38,25 +47,38 @@ defmodule DeltaCrdt.AWLWWMap do
       Map.get(dots, c, 0) >= i
     end
 
-    def intersection(dots1 = %MapSet{}, dots2 = %MapSet{}) do
-      MapSet.intersection(dots1, dots2)
+    # def intersection(dots1 = %MapSet{}, dots2 = %MapSet{}) do
+    #   MapSet.intersection(dots1, dots2)
+    # end
+
+    # def intersection(dots1 = %MapSet{}, dots2) do
+    #   intersection(compress(dots1), dots2)
+    # end
+
+    # def intersection(dots1, dots2 = %MapSet{}) do
+    #   intersection(dots2, dots1)
+    # end
+
+    # def intersection(dots1, dots2) do
+    #   Enum.reduce(dots1, dots2, fn {c, i}, new_dots ->
+    #     Map.update(new_dots, c, i, fn
+    #       x when x < i -> x
+    #       _x -> i
+    #     end)
+    #   end)
+    # end
+
+    def difference(dots1 = %MapSet{}, dots2 = %MapSet{}) do
+      MapSet.difference(dots1, dots2)
     end
 
-    def intersection(dots1 = %MapSet{}, dots2) do
-      intersection(dots1, decompress(dots2))
-    end
+    def difference(dots1, %MapSet{}), do: raise("nope, ain't gonna work")
 
-    def intersection(dots1, dots2 = %MapSet{}) do
-      intersection(dots2, dots1)
-    end
-
-    def intersection(dots1, dots2) do
-      Enum.reduce(dots1, dots2, fn {c, i}, new_dots ->
-        Map.update(new_dots, c, i, fn
-          x when x < i -> x
-          _x -> i
-        end)
+    def difference(dots1 = %MapSet{}, dots2) do
+      Enum.reject(dots1, fn dot ->
+        member?(dots2, dot)
       end)
+      |> MapSet.new()
     end
 
     def max_dots(dots) do
@@ -82,7 +104,7 @@ defmodule DeltaCrdt.AWLWWMap do
     end
   end
 
-  def new(), do: %__MODULE__{}
+  def new(), do: %__MODULE__{} |> compress_dots()
 
   def add(key, value, i, state) do
     rem = remove(key, i, state)
@@ -94,7 +116,7 @@ defmodule DeltaCrdt.AWLWWMap do
     |> join(rem)
   end
 
-  def garbage_collect(state) do
+  def compress_dots(state) do
     %{state | dots: DotStore.compress(state.dots)}
   end
 
@@ -165,7 +187,7 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def join_decomposition(%{value: val} = delta) do
-    dots_to_deltas =
+    dots_to_keys =
       Enum.flat_map(val, fn {key, dot_map} ->
         Enum.flat_map(dot_map, fn {_key, dots} ->
           Enum.map(dots, fn dot -> {dot, key} end)
@@ -174,8 +196,9 @@ defmodule DeltaCrdt.AWLWWMap do
       |> Map.new()
 
     Enum.map(DotStore.decompress(delta.dots), fn dot ->
-      case Map.get(dots_to_deltas, dot) do
+      case Map.get(dots_to_keys, dot) do
         nil ->
+          # No key found: this is a remove operation
           %__MODULE__{
             dots: MapSet.new([dot]),
             keys: delta.keys,
@@ -183,6 +206,7 @@ defmodule DeltaCrdt.AWLWWMap do
           }
 
         key ->
+          # Key found: this is an add operation
           dots = Map.get(val, key)
 
           %__MODULE__{
@@ -253,18 +277,25 @@ defmodule DeltaCrdt.AWLWWMap do
     }
   end
 
+  def join_dot_sets(%{value: s1, dots: c1}, %{value: s2, dots: c2}, [])
+      when is_map(s2) and map_size(s2) == 0 do
+    new_s =
+      MapSet.union(DotStore.difference(s1, c2), DotStore.difference(s2, c1))
+      |> Enum.to_list()
+
+    %__MODULE__{value: new_s}
+  end
+
   def join_dot_sets(%{value: s1, dots: c1}, %{value: s2, dots: c2}, []) do
+    # IO.inspect({s1, s2, c1, c2})
     s1 = MapSet.new(s1)
     s2 = MapSet.new(s2)
-
-    c1 = DotStore.decompress(c1)
-    c2 = DotStore.decompress(c2)
 
     new_s =
       [
         MapSet.intersection(s1, s2),
-        MapSet.difference(s1, c2),
-        MapSet.difference(s2, c1)
+        DotStore.difference(s1, c2),
+        DotStore.difference(s2, c1)
       ]
       |> Enum.reduce(&MapSet.union/2)
       |> Enum.to_list()
@@ -279,49 +310,10 @@ defmodule DeltaCrdt.AWLWWMap do
     end)
   end
 
-  defmodule BinarySearch do
-    def binary_search(fun, min \\ 1, max \\ 100) when min <= max do
-      upper_bound = find_upper_bound(fun, max)
-      find_value(fun, min, upper_bound)
-    end
-
-    defp find_upper_bound(fun, max) do
-      case fun.(max) do
-        x when x < 0 ->
-          find_upper_bound(fun, max * 2)
-
-        x when x > 0 ->
-          max
-      end
-    end
-
-    defp find_value(_fun, min, min) do
-      min
-    end
-
-    defp find_value(fun, min, max) do
-      attempt = trunc(min + (max - min) / 2)
-
-      case fun.(attempt) do
-        x when x < 0 ->
-          find_value(fun, attempt + 1, max)
-
-        x when x > 0 ->
-          find_value(fun, min, attempt)
-      end
-    end
-  end
+  defp next_dot(i, %MapSet{}),
+    do: raise("this function can not be called with an uncompressed causal context")
 
   defp next_dot(i, c) do
-    next_max =
-      BinarySearch.binary_search(fn x ->
-        if MapSet.member?(c, {i, x}) do
-          -1
-        else
-          1
-        end
-      end)
-
-    {i, next_max}
+    {i, Map.get(c, i, 0) + 1}
   end
 end

@@ -4,16 +4,16 @@ defmodule DeltaCrdt.AWLWWMap.DotStoreTest do
   alias DeltaCrdt.AWLWWMap.DotStore
 
   test "can compress dots" do
-    compressed = DotStore.compress([{1, 1}, {1, 2}])
+    compressed = DotStore.compress(MapSet.new([{1, 1}, {1, 2}]))
     assert %{1 => 2} = compressed
     assert 1 = map_size(compressed)
 
-    assert %{1 => 2, 2 => 3} = DotStore.compress([{1, 2}, {1, 1}, {2, 2}, {2, 3}])
+    assert %{1 => 2, 2 => 3} = DotStore.compress(MapSet.new([{1, 2}, {1, 1}, {2, 2}, {2, 3}]))
   end
 
   test "compression is idempotent" do
     compressed =
-      DotStore.compress([{1, 1}, {1, 2}])
+      DotStore.compress(MapSet.new([{1, 1}, {1, 2}]))
       |> DotStore.compress()
 
     assert %{1 => 2} = compressed
@@ -61,13 +61,16 @@ defmodule DeltaCrdt.AWLWWMap.DotStoreTest do
   test "can calculate intersection on compressed dots" do
     dots1 = MapSet.new([{1, 1}, {1, 2}, {2, 1}])
     dots2 = MapSet.new([{1, 1}, {1, 2}, {2, 2}]) |> DotStore.compress()
-    assert MapSet.new([{1, 1}, {1, 2}, {2, 1}]) == DotStore.intersection(dots1, dots2)
+
+    assert MapSet.new([{1, 1}, {1, 2}, {2, 1}]) ==
+             DotStore.intersection(dots1, dots2) |> DotStore.decompress()
 
     dots1 = MapSet.new([{1, 1}, {1, 2}, {2, 1}]) |> DotStore.compress()
     dots2 = MapSet.new([{1, 1}, {1, 2}, {2, 2}]) |> DotStore.compress()
 
     assert MapSet.new([{1, 1}, {1, 2}, {2, 1}]) ==
-             DotStore.intersection(dots1, dots2) |> DotStore.decompress()
+             DotStore.intersection(dots1, dots2)
+             |> DotStore.decompress()
   end
 
   test "can calculate max_dots" do

@@ -145,7 +145,7 @@ defmodule AWLWWMapPropertyTest do
       check all [op1, op2] <- list_of(AWLWWMapProperty.random_operation(), length: 2),
                 max_run_time: 2000,
                 max_runs: 2000 do
-        op1 = op1.(AWLWWMap.new())
+        op1 = op1.(AWLWWMap.new()) |> AWLWWMap.compress_dots()
         op2 = op2.(op1)
         state = AWLWWMap.join(op1, op2)
 

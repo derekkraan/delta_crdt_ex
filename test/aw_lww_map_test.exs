@@ -11,7 +11,7 @@ defmodule NewAWLWWMapTest do
   end
 
   test "can join two adds" do
-    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new()) |> AWLWWMap.compress_dots()
     add2 = AWLWWMap.add(2, 2, :foo_node, add1)
 
     assert %{1 => 2, 2 => 2} =
@@ -20,7 +20,7 @@ defmodule NewAWLWWMapTest do
   end
 
   test "can remove elements" do
-    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new()) |> AWLWWMap.compress_dots()
     remove1 = AWLWWMap.remove(1, :foo_node, add1)
 
     assert %{} =
@@ -29,7 +29,7 @@ defmodule NewAWLWWMapTest do
   end
 
   test "can resolve conflicts" do
-    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new()) |> AWLWWMap.compress_dots()
     add2 = AWLWWMap.add(1, 3, :foo_node, add1)
 
     # TODO assert that the state doesn't include anything about value 2
@@ -40,7 +40,7 @@ defmodule NewAWLWWMapTest do
   end
 
   test "can compute minimum deltas" do
-    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new()) |> AWLWWMap.compress_dots()
     change1 = AWLWWMap.add(1, 3, :foo_node, add1)
     remove1 = AWLWWMap.remove(1, :foo_node, add1)
     remove2 = AWLWWMap.remove(2, :foo_node, add1)
@@ -53,12 +53,12 @@ defmodule NewAWLWWMapTest do
   end
 
   test "can compute actual dots present" do
-    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new()) |> AWLWWMap.compress_dots()
     change1 = AWLWWMap.add(1, 3, :foo_node, add1)
 
     final = AWLWWMap.join(add1, change1)
 
-    assert 1 = map_size(AWLWWMap.garbage_collect(final) |> Map.get(:dots))
+    assert 1 = map_size(final |> Map.get(:dots))
   end
 
   property "arbitrary add and remove sequence results in correct map" do

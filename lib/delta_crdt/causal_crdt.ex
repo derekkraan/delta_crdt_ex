@@ -46,7 +46,7 @@ defmodule DeltaCrdt.CausalCrdt do
         storage_module: Keyword.get(opts, :storage_module),
         crdt_module: crdt_module,
         ship_debounce: Keyword.get(opts, :ship_debounce),
-        crdt_state: crdt_module.new()
+        crdt_state: crdt_module.new() |> crdt_module.compress_dots()
       }
       |> read_from_storage()
 
@@ -258,11 +258,7 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_call(:garbage_collect, _from, state) do
-    state =
-      garbage_collect_deltas(state)
-      |> garbage_collect_crdt_state()
-
-    {:reply, :ok, state}
+    {:reply, :ok, garbage_collect_deltas(state)}
   end
 
   def handle_call(
@@ -306,6 +302,7 @@ defmodule DeltaCrdt.CausalCrdt do
         delta = Enum.reduce(minimum_deltas, &state.crdt_module.join/2)
 
         new_crdt_state = state.crdt_module.join(state.crdt_state, delta)
+
         new_deltas = Map.put(state.deltas, state.sequence_number, {self(), delta})
         new_sequence_number = state.sequence_number + 1
 
@@ -314,10 +311,6 @@ defmodule DeltaCrdt.CausalCrdt do
         |> Map.put(:sequence_number, new_sequence_number)
         |> write_to_storage()
     end
-  end
-
-  defp garbage_collect_crdt_state(state) do
-    Map.put(state, :crdt_state, state.crdt_module.garbage_collect(state.crdt_state))
   end
 
   defp garbage_collect_deltas(state) do
@@ -343,12 +336,6 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  defp forget_neighbour(state, pid) do
-    Map.put(state, :neighbours, MapSet.delete(state.neighbours, pid))
-    |> Map.put(:ack_map, Map.delete(state.ack_map, pid))
-    |> Map.put(:outstanding_acks, Map.delete(state.outstanding_acks, pid))
-  end
-
   defp apply_delta_interval(state, neighbour, delta_interval) do
     case state.crdt_module.minimum_deltas(delta_interval, state.crdt_state) do
       [] ->
@@ -358,6 +345,7 @@ defmodule DeltaCrdt.CausalCrdt do
         delta = Enum.reduce(minimum_deltas, &state.crdt_module.join/2)
 
         new_crdt_state = state.crdt_module.join(state.crdt_state, delta)
+
         new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, delta})
         new_sequence_number = state.sequence_number + 1
 
