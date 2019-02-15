@@ -179,17 +179,20 @@ defmodule DeltaCrdt.AWLWWMap do
     end
   end
 
-  def join_decomposition(%{value: val} = delta) do
-    dots_to_deltas =
-      Enum.flat_map(val, fn {key, dot_map} ->
-        Enum.flat_map(dot_map, fn {_key, dots} ->
-          Enum.map(dots, fn dot -> {dot, key} end)
-        end)
+  defp dots_to_deltas(%{value: val}) do
+    Enum.flat_map(val, fn {key, dot_map} ->
+      Enum.flat_map(dot_map, fn {_key, dots} ->
+        Enum.map(dots, fn dot -> {dot, key} end)
       end)
-      |> Map.new()
+    end)
+    |> Map.new()
+  end
+
+  def join_decomposition(delta) do
+    d2d = dots_to_deltas(delta)
 
     Enum.map(Dots.decompress(delta.dots), fn dot ->
-      case Map.get(dots_to_deltas, dot) do
+      case Map.get(d2d, dot) do
         nil ->
           %__MODULE__{
             dots: MapSet.new([dot]),
@@ -198,7 +201,7 @@ defmodule DeltaCrdt.AWLWWMap do
           }
 
         key ->
-          dots = Map.get(val, key)
+          dots = Map.get(delta.value, key)
 
           %__MODULE__{
             dots: MapSet.new([dot]),
