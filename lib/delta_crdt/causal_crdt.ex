@@ -46,7 +46,7 @@ defmodule DeltaCrdt.CausalCrdt do
         storage_module: Keyword.get(opts, :storage_module),
         crdt_module: crdt_module,
         ship_debounce: Keyword.get(opts, :ship_debounce),
-        crdt_state: crdt_module.new()
+        crdt_state: crdt_module.new() |> crdt_module.compress_dots()
       }
       |> read_from_storage()
 
@@ -177,13 +177,7 @@ defmodule DeltaCrdt.CausalCrdt do
     %{dots: delta_dots} = delta_interval
     %{crdt_state: %{dots: state_dots}} = state
 
-    max_state_dots = max_dots(state_dots)
-
-    # TODO extract this functionality and test it better
-    strict_expansion =
-      Enum.all?(min_dots(delta_dots), fn {node_id, min} ->
-        min <= Map.get(max_state_dots, node_id, 0) + 1
-      end)
+    strict_expansion = DeltaCrdt.AWLWWMap.Dots.strict_expansion?(state_dots, delta_dots)
 
     if strict_expansion do
       send(neighbour, {:ack, self_ref, n})
@@ -256,11 +250,7 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_call(:garbage_collect, _from, state) do
-    state =
-      garbage_collect_deltas(state)
-      |> garbage_collect_crdt_state()
-
-    {:reply, :ok, state}
+    {:reply, :ok, garbage_collect_deltas(state)}
   end
 
   def handle_call(
@@ -330,10 +320,6 @@ defmodule DeltaCrdt.CausalCrdt do
         old_val -> old_val
       end)
     end)
-  end
-
-  defp garbage_collect_crdt_state(state) do
-    Map.put(state, :crdt_state, state.crdt_module.garbage_collect(state.crdt_state))
   end
 
   defp garbage_collect_deltas(state) do

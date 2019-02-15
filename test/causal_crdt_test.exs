@@ -103,8 +103,8 @@ defmodule CausalCrdtTest do
     assert %{"Derek" => "add_wins"} == DeltaCrdt.read(context.c2)
     DeltaCrdt.mutate(context.c1, :remove, ["Derek"])
     Process.sleep(100)
-    assert %{} == DeltaCrdt.read(context.c2)
     assert %{} == DeltaCrdt.read(context.c1)
+    assert %{} == DeltaCrdt.read(context.c2)
   end
 
   test "syncs after adding neighbour" do

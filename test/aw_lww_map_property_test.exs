@@ -21,7 +21,10 @@ defmodule AWLWWMapPropertyTest do
                 val <- term(),
                 node_id <- term() do
         assert %{key => val} ==
-                 AWLWWMap.join(AWLWWMap.new(), AWLWWMap.add(key, val, node_id, AWLWWMap.new()))
+                 AWLWWMap.join(
+                   AWLWWMap.compress_dots(AWLWWMap.new()),
+                   AWLWWMap.add(key, val, node_id, AWLWWMap.compress_dots(AWLWWMap.new()))
+                 )
                  |> AWLWWMap.read()
       end
     end
@@ -31,7 +34,7 @@ defmodule AWLWWMapPropertyTest do
     check all operations <- list_of(context.operation_gen) do
       actual_result =
         operations
-        |> Enum.reduce(AWLWWMap.new(), fn
+        |> Enum.reduce(AWLWWMap.compress_dots(AWLWWMap.new()), fn
           {:add, key, val, node_id}, map ->
             AWLWWMap.join(map, AWLWWMap.add(key, val, node_id, map))
 
@@ -59,7 +62,7 @@ defmodule AWLWWMapPropertyTest do
       check all key <- term(),
                 val <- term(),
                 node_id <- term() do
-        crdt = AWLWWMap.new()
+        crdt = AWLWWMap.compress_dots(AWLWWMap.new())
         crdt = AWLWWMap.join(crdt, AWLWWMap.add(key, val, node_id, crdt))
 
         crdt =
@@ -76,7 +79,7 @@ defmodule AWLWWMapPropertyTest do
       check all ops <- list_of(context.operation_gen),
                 node_id <- term() do
         populated_map =
-          Enum.reduce(ops, AWLWWMap.new(), fn
+          Enum.reduce(ops, AWLWWMap.compress_dots(AWLWWMap.new()), fn
             {:add, key, val, node_id}, map ->
               AWLWWMap.add(key, val, node_id, map)
               |> AWLWWMap.join(map)
@@ -101,7 +104,7 @@ defmodule AWLWWMapPropertyTest do
       check all ops <- list_of(AWLWWMapProperty.random_operation()) do
         # make 1 delta
         joined_delta =
-          Enum.reduce(ops, AWLWWMap.new(), fn op, st ->
+          Enum.reduce(ops, AWLWWMap.compress_dots(AWLWWMap.new()), fn op, st ->
             delta = op.(st)
             AWLWWMap.join(st, delta)
           end)
@@ -118,7 +121,7 @@ defmodule AWLWWMapPropertyTest do
     property "join decomposition when joined returns itself" do
       check all ops <- list_of(AWLWWMapProperty.random_operation()) do
         joined_delta =
-          Enum.reduce(ops, AWLWWMap.new(), fn op, st ->
+          Enum.reduce(ops, AWLWWMap.compress_dots(AWLWWMap.new()), fn op, st ->
             delta = op.(st)
             AWLWWMap.join(st, delta)
           end)
@@ -135,7 +138,7 @@ defmodule AWLWWMapPropertyTest do
   describe ".expansion?/2" do
     property "no operation is a strict expansion of itself" do
       check all op <- AWLWWMapProperty.random_operation() do
-        op = op.(AWLWWMap.new())
+        op = op.(AWLWWMap.compress_dots(AWLWWMap.new()))
 
         assert false == AWLWWMap.expansion?(op, op)
       end
@@ -145,8 +148,9 @@ defmodule AWLWWMapPropertyTest do
       check all [op1, op2] <- list_of(AWLWWMapProperty.random_operation(), length: 2),
                 max_run_time: 2000,
                 max_runs: 2000 do
-        op1 = op1.(AWLWWMap.new())
-        op2 = op2.(op1)
+        initial = AWLWWMap.compress_dots(AWLWWMap.new())
+        op1 = op1.(initial)
+        op2 = op2.(AWLWWMap.join(op1, initial))
         state = AWLWWMap.join(op1, op2)
 
         Enum.each(AWLWWMap.join_decomposition(op2), fn op ->

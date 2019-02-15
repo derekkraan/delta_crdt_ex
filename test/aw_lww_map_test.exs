@@ -58,7 +58,7 @@ defmodule NewAWLWWMapTest do
 
     final = AWLWWMap.join(add1, change1)
 
-    assert 1 = MapSet.size(AWLWWMap.garbage_collect(final) |> Map.get(:dots))
+    assert 1 = map_size(AWLWWMap.compress_dots(final) |> Map.get(:dots))
   end
 
   property "arbitrary add and remove sequence results in correct map" do
