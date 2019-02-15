@@ -17,8 +17,6 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defstruct node_id: nil,
             notify: nil,
-            neighbours: MapSet.new(),
-            neighbour_refs: %{},
             storage_module: nil,
             crdt_module: nil,
             crdt_state: nil,
@@ -27,12 +25,13 @@ defmodule DeltaCrdt.CausalCrdt do
             ship_debounce: 0,
             deltas: %{},
             ack_map: %{},
+            neighbours: MapSet.new(),
             outstanding_acks: %{}
 
   ### GenServer callbacks
 
   def init(opts) do
-    DeltaCrdt.Periodic.start_link(:garbage_collect_deltas, @gc_interval)
+    DeltaCrdt.Periodic.start_link(:garbage_collect, @gc_interval)
     DeltaCrdt.Periodic.start_link(:sync, Keyword.get(opts, :sync_interval))
     DeltaCrdt.Periodic.start_link(:try_ship_client, Keyword.get(opts, :ship_interval))
 
@@ -47,7 +46,7 @@ defmodule DeltaCrdt.CausalCrdt do
         storage_module: Keyword.get(opts, :storage_module),
         crdt_module: crdt_module,
         ship_debounce: Keyword.get(opts, :ship_debounce),
-        crdt_state: crdt_module.new()
+        crdt_state: crdt_module.new() |> crdt_module.compress_dots()
       }
       |> read_from_storage()
 
@@ -152,70 +151,33 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
 
-  ### this function is only used for testing purposes.
-  def handle_info(:forget_neighbours, state) do
-    new_state =
-      Enum.reduce(state.neighbour_refs, state, fn {_ref, pid}, state ->
-        forget_neighbour(state, pid)
+  def handle_info({:set_neighbours, neighbours}, state) do
+    state = %{state | neighbours: MapSet.new(neighbours)}
+
+    new_ack_map =
+      Enum.filter(state.ack_map, fn {neighbour, _seq} ->
+        MapSet.member?(state.neighbours, neighbour)
       end)
+      |> Map.new()
 
-    {:noreply, new_state}
-  end
+    new_outstanding_acks =
+      Enum.filter(state.outstanding_acks, fn {neighbour, _ack} ->
+        MapSet.member?(state.neighbours, neighbour)
+      end)
+      |> Map.new()
 
-  def handle_info({:DOWN, ref, :process, _object, _reason}, state) do
-    new_state =
-      case Map.pop(state.neighbour_refs, ref) do
-        {nil, _neighbour_refs} ->
-          state
-
-        {pid, neighbour_refs} ->
-          Map.put(state, :neighbour_refs, neighbour_refs)
-          |> forget_neighbour(pid)
-      end
-
-    {:noreply, new_state}
-  end
-
-  def handle_info({:add_neighbours, pids}, state) do
-    state = monitor_neighbours(pids, state)
-
-    new_neighbours = pids |> MapSet.new() |> MapSet.union(state.neighbours)
-    state = %{state | neighbours: new_neighbours}
+    state = %{state | ack_map: new_ack_map, outstanding_acks: new_outstanding_acks}
 
     outstanding_acks = sync_interval_or_state_to_all(state)
 
     {:noreply, %{state | outstanding_acks: outstanding_acks}}
   end
 
-  defp max_dots(dots) do
-    Enum.reduce(dots, %{}, fn {node_id, val}, map ->
-      Map.update(map, node_id, val, fn
-        old_val when old_val < val -> val
-        old_val -> old_val
-      end)
-    end)
-  end
-
-  defp min_dots(dots) do
-    Enum.reduce(dots, %{}, fn {node_id, val}, map ->
-      Map.update(map, node_id, val, fn
-        old_val when old_val > val -> val
-        old_val -> old_val
-      end)
-    end)
-  end
-
   def handle_info({:delta, {neighbour, self_ref, delta_interval}, n}, state) do
     %{dots: delta_dots} = delta_interval
     %{crdt_state: %{dots: state_dots}} = state
 
-    max_state_dots = max_dots(state_dots)
-
-    # TODO extract this functionality and test it better
-    strict_expansion =
-      Enum.all?(min_dots(delta_dots), fn {node_id, min} ->
-        min <= Map.get(max_state_dots, node_id, 0) + 1
-      end)
+    strict_expansion = DeltaCrdt.AWLWWMap.Dots.strict_expansion?(state_dots, delta_dots)
 
     if strict_expansion do
       send(neighbour, {:ack, self_ref, n})
@@ -223,14 +185,19 @@ defmodule DeltaCrdt.CausalCrdt do
       new_state = apply_delta_interval(state, neighbour, delta_interval)
       {:noreply, new_state}
     else
-      # TODO we need to reset ourselves to trigger getting full deltas from all neighbours
-      Logger.debug(fn ->
-        "not applying delta interval #{inspect({state_dots, delta_dots})} from #{
-          inspect(neighbour)
-        } because delta interval is not a strict expansion"
-      end)
+      Logger.error(
+        "Received delta from neighbour that is not a strict expansion: #{
+          inspect({state_dots, delta_dots})
+        } from #{inspect(neighbour)}"
+      )
 
-      {:noreply, state}
+      # in order to come back up in a clean state we will write to storage with a new state
+      new_state =
+        Map.put(state, :crdt_state, state.crdt_module.new())
+        |> Map.put(:sequence_number, 0)
+        |> write_to_storage()
+
+      {:stop, "invalid delta", new_state}
     end
   end
 
@@ -282,27 +249,8 @@ defmodule DeltaCrdt.CausalCrdt do
     {:reply, Enum.count(state.deltas), state}
   end
 
-  def handle_call(:garbage_collect_deltas, _from, state) do
-    pid = self()
-
-    neighbours =
-      Enum.filter(state.neighbours, fn
-        ^pid -> false
-        _ -> true
-      end)
-
-    if Enum.empty?(neighbours) do
-      {:reply, :ok, %{state | deltas: %{}}}
-    else
-      l =
-        state.neighbours
-        |> Enum.filter(fn neighbour -> Map.has_key?(state.ack_map, neighbour) end)
-        |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
-        |> Enum.min(fn -> 0 end)
-
-      new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Map.new()
-      {:reply, :ok, %{state | deltas: new_deltas}}
-    end
+  def handle_call(:garbage_collect, _from, state) do
+    {:reply, :ok, garbage_collect_deltas(state)}
   end
 
   def handle_call(
@@ -356,6 +304,47 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
+  defp max_dots(dots) do
+    Enum.reduce(dots, %{}, fn {node_id, val}, map ->
+      Map.update(map, node_id, val, fn
+        old_val when old_val < val -> val
+        old_val -> old_val
+      end)
+    end)
+  end
+
+  defp min_dots(dots) do
+    Enum.reduce(dots, %{}, fn {node_id, val}, map ->
+      Map.update(map, node_id, val, fn
+        old_val when old_val > val -> val
+        old_val -> old_val
+      end)
+    end)
+  end
+
+  defp garbage_collect_deltas(state) do
+    pid = self()
+
+    neighbours =
+      Enum.filter(state.neighbours, fn
+        ^pid -> false
+        _ -> true
+      end)
+
+    if Enum.empty?(neighbours) do
+      Map.put(state, :deltas, %{})
+    else
+      l =
+        state.neighbours
+        |> Enum.filter(fn neighbour -> Map.has_key?(state.ack_map, neighbour) end)
+        |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
+        |> Enum.min(fn -> 0 end)
+
+      new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Map.new()
+      Map.put(state, :deltas, new_deltas)
+    end
+  end
+
   defp forget_neighbour(state, pid) do
     Map.put(state, :neighbours, MapSet.delete(state.neighbours, pid))
     |> Map.put(:ack_map, Map.delete(state.ack_map, pid))
@@ -393,15 +382,5 @@ defmodule DeltaCrdt.CausalCrdt do
       nil -> GenServer.reply(reply_to, :ok)
       loc -> send(loc, {msg, reply_to})
     end
-  end
-
-  defp monitor_neighbours(pids, state) do
-    new_refs =
-      pids
-      |> MapSet.new()
-      |> MapSet.difference(state.neighbours)
-      |> Map.new(fn pid -> {Process.monitor(pid), pid} end)
-
-    %{state | neighbour_refs: Map.merge(state.neighbour_refs, new_refs)}
   end
 end

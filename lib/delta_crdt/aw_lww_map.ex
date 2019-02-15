@@ -3,21 +3,119 @@ defmodule DeltaCrdt.AWLWWMap do
             dots: MapSet.new(),
             value: %{}
 
+  require Logger
+
   def new(), do: %__MODULE__{}
+
+  defmodule Dots do
+    def compress(dots = %MapSet{}) do
+      Enum.reduce(dots, %{}, fn {c, i}, dots_map ->
+        Map.update(dots_map, c, i, fn
+          x when x > i -> x
+          _x -> i
+        end)
+      end)
+    end
+
+    def decompress(dots = %MapSet{}), do: dots
+
+    def decompress(dots) do
+      Enum.flat_map(dots, fn {i, x} ->
+        Enum.map(1..x, fn y -> {i, y} end)
+      end)
+    end
+
+    def next_dot(i, c = %MapSet{}) do
+      Logger.warn("inefficient next_dot computation")
+      next_dot(i, compress(c))
+    end
+
+    def next_dot(i, c) do
+      {i, Map.get(c, i, 0) + 1}
+    end
+
+    def union(dots1 = %MapSet{}, dots2 = %MapSet{}) do
+      MapSet.union(dots1, dots2)
+    end
+
+    def union(dots1 = %MapSet{}, dots2), do: union(dots2, dots1)
+
+    def union(dots1, dots2) do
+      Enum.reduce(dots2, dots1, fn {c, i}, dots_map ->
+        Map.update(dots_map, c, i, fn
+          x when x > i -> x
+          _x -> i
+        end)
+      end)
+    end
+
+    def difference(dots1 = %MapSet{}, dots2 = %MapSet{}) do
+      MapSet.difference(dots1, dots2)
+    end
+
+    def difference(_dots1, dots2 = %MapSet{}), do: raise("this should not happen")
+
+    def difference(dots1, dots2) do
+      Enum.reject(dots1, fn dot ->
+        member?(dots2, dot)
+      end)
+      |> MapSet.new()
+    end
+
+    def member?(dots = %MapSet{}, dot = {_, _}) do
+      MapSet.member?(dots, dot)
+    end
+
+    def member?(dots, {i, x}) do
+      Map.get(dots, i, 0) >= x
+    end
+
+    def strict_expansion?(dots = %MapSet{}, delta_dots) do
+      raise "we should not get here"
+    end
+
+    def strict_expansion?(dots, delta_dots) do
+      Enum.all?(min_dots(delta_dots), fn {i, x} ->
+        Map.get(dots, i, 0) + 1 >= x
+      end)
+    end
+
+    def min_dots(dots = %MapSet{}) do
+      Enum.reduce(dots, %{}, fn {i, x}, min ->
+        Map.update(min, i, x, fn
+          min when min < x -> min
+          _min -> x
+        end)
+      end)
+    end
+
+    def min_dots(dots) do
+      %{}
+    end
+  end
 
   def add(key, value, i, state) do
     rem = remove(key, i, state)
 
-    fn aw_set, context ->
-      aw_set_add(i, {value, System.system_time(:nanosecond)}, {aw_set, context})
+    add =
+      fn aw_set, context ->
+        aw_set_add(i, {value, System.system_time(:nanosecond)}, {aw_set, context})
+      end
+      |> apply_op(key, state)
+
+    case MapSet.size(rem.dots) do
+      0 -> add
+      _ -> join(rem, add)
     end
-    |> apply_op(key, state)
-    |> join(rem)
+  end
+
+  def compress_dots(state) do
+    %{state | dots: Dots.compress(state.dots)}
   end
 
   defp aw_set_add(i, el, {aw_set, c}) do
-    d = next_dot(i, c)
-    {%{el => [d]}, [d | Map.get(aw_set, el, [])]}
+    d = Dots.next_dot(i, c)
+    {%{el => MapSet.new([d])}, MapSet.put(Map.get(aw_set, el, MapSet.new()), d)}
   end
 
   defp apply_op(op, key, %{value: m, dots: c}) do
@@ -62,12 +160,11 @@ defmodule DeltaCrdt.AWLWWMap do
         false
 
       [dot] ->
-        MapSet.member?(state.dots, dot) && !MapSet.disjoint?(d.keys, state.keys) &&
+        Dots.member?(state.dots, dot) && !MapSet.disjoint?(d.keys, state.keys) &&
           Map.take(state.value, d.keys)
           |> Enum.any?(fn {_k, val} ->
             Enum.any?(val, fn
-              {_v, [^dot]} -> true
-              _ -> false
+              {_v, dots} -> MapSet.member?(dots, dot)
             end)
           end)
     end
@@ -75,23 +172,27 @@ defmodule DeltaCrdt.AWLWWMap do
 
   def expansion?(d, state) do
     # check add expansion
+
     case Enum.to_list(d.dots) do
       [] -> false
-      [dot] -> !MapSet.member?(state.dots, dot)
+      [dot] -> !Dots.member?(state.dots, dot)
     end
   end
 
-  def join_decomposition(%{value: val} = delta) do
-    dots_to_deltas =
-      Enum.flat_map(val, fn {key, dot_map} ->
-        Enum.flat_map(dot_map, fn {_key, dots} ->
-          Enum.map(dots, fn dot -> {dot, key} end)
-        end)
+  defp dots_to_deltas(%{value: val}) do
+    Enum.flat_map(val, fn {key, dot_map} ->
+      Enum.flat_map(dot_map, fn {_key, dots} ->
+        Enum.map(dots, fn dot -> {dot, key} end)
       end)
-      |> Map.new()
+    end)
+    |> Map.new()
+  end
 
-    Enum.map(delta.dots, fn dot ->
-      case Map.get(dots_to_deltas, dot) do
+  def join_decomposition(delta) do
+    d2d = dots_to_deltas(delta)
+
+    Enum.map(Dots.decompress(delta.dots), fn dot ->
+      case Map.get(d2d, dot) do
         nil ->
           %__MODULE__{
             dots: MapSet.new([dot]),
@@ -100,7 +201,7 @@ defmodule DeltaCrdt.AWLWWMap do
           }
 
         key ->
-          dots = Map.get(val, key)
+          dots = Map.get(delta.value, key)
 
           %__MODULE__{
             dots: MapSet.new([dot]),
@@ -112,7 +213,7 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def join(delta1, delta2) do
-    new_dots = MapSet.union(delta1.dots, delta2.dots)
+    new_dots = Dots.union(delta1.dots, delta2.dots)
     new_keys = MapSet.union(delta1.keys, delta2.keys)
 
     join_or_maps(delta1, delta2, [:join_or_maps, :join_dot_sets])
@@ -177,11 +278,10 @@ defmodule DeltaCrdt.AWLWWMap do
     new_s =
       [
         MapSet.intersection(s1, s2),
-        MapSet.difference(s1, c2),
-        MapSet.difference(s2, c1)
+        Dots.difference(s1, c2),
+        Dots.difference(s2, c1)
       ]
       |> Enum.reduce(&MapSet.union/2)
-      |> Enum.to_list()
 
     %__MODULE__{value: new_s}
   end
@@ -224,18 +324,5 @@ defmodule DeltaCrdt.AWLWWMap do
           find_value(fun, min, attempt)
       end
     end
-  end
-
-  defp next_dot(i, c) do
-    next_max =
-      BinarySearch.binary_search(fn x ->
-        if MapSet.member?(c, {i, x}) do
-          -1
-        else
-          1
-        end
-      end)
-
-    {i, next_max}
   end
 end

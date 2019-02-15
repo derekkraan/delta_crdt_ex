@@ -45,8 +45,8 @@ end
 {:ok, crdt1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap)
 {:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, notify: {listener, :crdt_update})
 
-DeltaCrdt.add_neighbours(crdt1, [crdt2])
-DeltaCrdt.add_neighbours(crdt2, [crdt1])
+DeltaCrdt.set_neighbours(crdt1, [crdt2])
+DeltaCrdt.set_neighbours(crdt2, [crdt1])
 
 Counter.start_link(0)
 
