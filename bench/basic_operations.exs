@@ -31,8 +31,8 @@ bench = fn ->
       "remove" => fn crdt -> DeltaCrdt.mutate(crdt, :remove, [10]) end
     },
     inputs: %{
-      "with 1000" => setup_crdt.(1000)
-      # "with 10_000" => setup_crdt.(10_000)
+      "with 1000" => setup_crdt.(1000),
+      "with 10_000" => setup_crdt.(10_000)
     },
     before_each: fn crdt ->
       DeltaCrdt.mutate(crdt, :add, [10, 10])
