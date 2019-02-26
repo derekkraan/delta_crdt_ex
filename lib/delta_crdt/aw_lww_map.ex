@@ -292,37 +292,4 @@ defmodule DeltaCrdt.AWLWWMap do
       {key, val}
     end)
   end
-
-  defmodule BinarySearch do
-    def binary_search(fun, min \\ 1, max \\ 100) when min <= max do
-      upper_bound = find_upper_bound(fun, max)
-      find_value(fun, min, upper_bound)
-    end
-
-    defp find_upper_bound(fun, max) do
-      case fun.(max) do
-        x when x < 0 ->
-          find_upper_bound(fun, max * 2)
-
-        x when x > 0 ->
-          max
-      end
-    end
-
-    defp find_value(_fun, min, min) do
-      min
-    end
-
-    defp find_value(fun, min, max) do
-      attempt = trunc(min + (max - min) / 2)
-
-      case fun.(attempt) do
-        x when x < 0 ->
-          find_value(fun, attempt + 1, max)
-
-        x when x > 0 ->
-          find_value(fun, min, attempt)
-      end
-    end
-  end
 end
