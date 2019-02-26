@@ -68,7 +68,6 @@ defmodule DeltaCrdt do
   """
   def child_spec(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
-    storage_module = Keyword.get(opts, :storage_module, nil)
     crdt_module = Keyword.get(opts, :crdt, nil)
     shutdown = Keyword.get(opts, :shutdown, 5000)
 

@@ -48,7 +48,7 @@ defmodule NewAWLWWMapTest do
     assert [] = AWLWWMap.minimum_deltas(add1, add1)
     refute Enum.member?(AWLWWMap.minimum_deltas(change1, add1), add1)
 
-    assert [remove1] = AWLWWMap.minimum_deltas(remove1, add1)
+    assert [remove1] == AWLWWMap.minimum_deltas(remove1, add1)
     assert [] = AWLWWMap.minimum_deltas(remove2, add1)
   end
 

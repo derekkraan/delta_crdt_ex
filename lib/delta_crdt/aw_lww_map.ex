@@ -56,7 +56,7 @@ defmodule DeltaCrdt.AWLWWMap do
       MapSet.difference(dots1, dots2)
     end
 
-    def difference(_dots1, dots2 = %MapSet{}), do: raise("this should not happen")
+    def difference(_dots1, _dots2 = %MapSet{}), do: raise("this should not happen")
 
     def difference(dots1, dots2) do
       Enum.reject(dots1, fn dot ->
@@ -73,7 +73,7 @@ defmodule DeltaCrdt.AWLWWMap do
       Map.get(dots, i, 0) >= x
     end
 
-    def strict_expansion?(dots = %MapSet{}, delta_dots) do
+    def strict_expansion?(_dots = %MapSet{}, _delta_dots) do
       raise "we should not get here"
     end
 
@@ -92,7 +92,7 @@ defmodule DeltaCrdt.AWLWWMap do
       end)
     end
 
-    def min_dots(dots) do
+    def min_dots(_dots) do
       %{}
     end
   end
