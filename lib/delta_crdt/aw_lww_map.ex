@@ -5,9 +5,12 @@ defmodule DeltaCrdt.AWLWWMap do
 
   require Logger
 
+  @doc false
   def new(), do: %__MODULE__{}
 
   defmodule Dots do
+    @moduledoc false
+
     def compress(dots = %MapSet{}) do
       Enum.reduce(dots, %{}, fn {c, i}, dots_map ->
         Map.update(dots_map, c, i, fn
@@ -109,6 +112,7 @@ defmodule DeltaCrdt.AWLWWMap do
     end
   end
 
+  @doc false
   def compress_dots(state) do
     %{state | dots: Dots.compress(state.dots)}
   end
@@ -148,11 +152,13 @@ defmodule DeltaCrdt.AWLWWMap do
     Map.put(state, :value, %{})
   end
 
+  @doc false
   def minimum_deltas(delta, state) do
     join_decomposition(delta)
     |> Enum.filter(fn delta -> expansion?(delta, state) end)
   end
 
+  @doc false
   def expansion?(%{value: values} = d, state) when map_size(values) == 0 do
     # check remove expansion
     case Enum.to_list(d.dots) do
@@ -170,6 +176,7 @@ defmodule DeltaCrdt.AWLWWMap do
     end
   end
 
+  @doc false
   def expansion?(d, state) do
     # check add expansion
 
@@ -188,6 +195,7 @@ defmodule DeltaCrdt.AWLWWMap do
     |> Map.new()
   end
 
+  @doc false
   def join_decomposition(delta) do
     d2d = dots_to_deltas(delta)
 
@@ -212,6 +220,7 @@ defmodule DeltaCrdt.AWLWWMap do
     end)
   end
 
+  @doc false
   def join(delta1, delta2) do
     new_dots = Dots.union(delta1.dots, delta2.dots)
     new_keys = MapSet.union(delta1.keys, delta2.keys)
@@ -221,6 +230,7 @@ defmodule DeltaCrdt.AWLWWMap do
     |> Map.put(:keys, new_keys)
   end
 
+  @doc false
   def join_or_maps(delta1, delta2, nested_joins) do
     val1 = delta1.value
     val2 = delta2.value
@@ -271,6 +281,7 @@ defmodule DeltaCrdt.AWLWWMap do
     }
   end
 
+  @doc false
   def join_dot_sets(%{value: s1, dots: c1}, %{value: s2, dots: c2}, []) do
     s1 = MapSet.new(s1)
     s2 = MapSet.new(s2)
