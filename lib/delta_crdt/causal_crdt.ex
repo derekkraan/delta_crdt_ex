@@ -38,19 +38,21 @@ defmodule DeltaCrdt.CausalCrdt do
 
     crdt_module = Keyword.get(opts, :crdt_module)
 
-    initial_state =
-      %__MODULE__{
-        node_id: :rand.uniform(1_000_000_000),
-        name: Keyword.get(opts, :name, nil),
-        notify: Keyword.get(opts, :notify),
-        storage_module: Keyword.get(opts, :storage_module),
-        crdt_module: crdt_module,
-        ship_debounce: Keyword.get(opts, :ship_debounce),
-        crdt_state: crdt_module.new() |> crdt_module.compress_dots()
-      }
-      |> read_from_storage()
+    initial_state = %__MODULE__{
+      node_id: :rand.uniform(1_000_000_000),
+      name: Keyword.get(opts, :name, nil),
+      notify: Keyword.get(opts, :notify),
+      storage_module: Keyword.get(opts, :storage_module),
+      crdt_module: crdt_module,
+      ship_debounce: Keyword.get(opts, :ship_debounce),
+      crdt_state: crdt_module.new() |> crdt_module.compress_dots()
+    }
 
-    {:ok, initial_state}
+    {:ok, initial_state, {:continue, :read_storage}}
+  end
+
+  def handle_continue(:read_storage, state) do
+    {:noreply, read_from_storage(state)}
   end
 
   def terminate(_reason, state) do
