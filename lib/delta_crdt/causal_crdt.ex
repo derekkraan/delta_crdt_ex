@@ -309,24 +309,6 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  defp max_dots(dots) do
-    Enum.reduce(dots, %{}, fn {node_id, val}, map ->
-      Map.update(map, node_id, val, fn
-        old_val when old_val < val -> val
-        old_val -> old_val
-      end)
-    end)
-  end
-
-  defp min_dots(dots) do
-    Enum.reduce(dots, %{}, fn {node_id, val}, map ->
-      Map.update(map, node_id, val, fn
-        old_val when old_val > val -> val
-        old_val -> old_val
-      end)
-    end)
-  end
-
   defp garbage_collect_deltas(state) do
     pid = self()
 
@@ -348,12 +330,6 @@ defmodule DeltaCrdt.CausalCrdt do
       new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Map.new()
       Map.put(state, :deltas, new_deltas)
     end
-  end
-
-  defp forget_neighbour(state, pid) do
-    Map.put(state, :neighbours, MapSet.delete(state.neighbours, pid))
-    |> Map.put(:ack_map, Map.delete(state.ack_map, pid))
-    |> Map.put(:outstanding_acks, Map.delete(state.outstanding_acks, pid))
   end
 
   defp apply_delta_interval(state, neighbour, delta_interval) do
