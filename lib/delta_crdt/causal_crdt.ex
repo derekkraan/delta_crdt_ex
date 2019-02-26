@@ -185,19 +185,13 @@ defmodule DeltaCrdt.CausalCrdt do
       new_state = apply_delta_interval(state, neighbour, delta_interval)
       {:noreply, new_state}
     else
+      send(neighbour, {:nack, self_ref})
+
       Logger.error(
-        "Received delta from neighbour that is not a strict expansion: #{
-          inspect({state_dots, delta_dots})
-        } from #{inspect(neighbour)}"
+        "Received delta from neighbour that is not a strict expansion. Sending `nack` to force sending whole state"
       )
 
-      # in order to come back up in a clean state we will write to storage with a new state
-      new_state =
-        Map.put(state, :crdt_state, state.crdt_module.new())
-        |> Map.put(:sequence_number, 0)
-        |> write_to_storage()
-
-      {:stop, "invalid delta", new_state}
+      {:noreply, state}
     end
   end
 
@@ -209,6 +203,11 @@ defmodule DeltaCrdt.CausalCrdt do
       new_outstanding_acks = Map.delete(state.outstanding_acks, neighbour)
       {:noreply, %{state | ack_map: new_ack_map, outstanding_acks: new_outstanding_acks}}
     end
+  end
+
+  def handle_info({:nack, neighbour}, state) do
+    new_ack_map = Map.put(state.ack_map, neighbour, 0)
+    {:noreply, %{state | ack_map: new_ack_map}}
   end
 
   def handle_info({:ship_client, reply_to, s}, %{sequence_number: s} = state) do
