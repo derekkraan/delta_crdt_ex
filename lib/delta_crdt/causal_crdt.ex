@@ -16,6 +16,7 @@ defmodule DeltaCrdt.CausalCrdt do
   @moduledoc false
 
   defstruct node_id: nil,
+            name: nil,
             notify: nil,
             storage_module: nil,
             crdt_module: nil,
@@ -41,7 +42,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
     initial_state =
       %__MODULE__{
-        node_id: Keyword.get(opts, :name, :rand.uniform(1_000_000_000)),
+        node_id: :rand.uniform(1_000_000_000),
+        name: Keyword.get(opts, :name, nil),
         notify: Keyword.get(opts, :notify),
         storage_module: Keyword.get(opts, :storage_module),
         crdt_module: crdt_module,
@@ -62,13 +64,14 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp read_from_storage(state) do
-    case state.storage_module.read(state.node_id) do
+    case state.storage_module.read(state.name) do
       nil ->
         state
 
-      {sequence_number, crdt_state} ->
+      {node_id, sequence_number, crdt_state} ->
         Map.put(state, :sequence_number, sequence_number)
         |> Map.put(:crdt_state, crdt_state)
+        |> Map.put(:node_id, node_id)
     end
   end
 
@@ -77,7 +80,12 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp write_to_storage(state) do
-    :ok = state.storage_module.write(state.node_id, {state.sequence_number, state.crdt_state})
+    :ok =
+      state.storage_module.write(
+        state.name,
+        {state.node_id, state.sequence_number, state.crdt_state}
+      )
+
     state
   end
 
