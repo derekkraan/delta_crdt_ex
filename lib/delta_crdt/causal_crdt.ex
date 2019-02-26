@@ -11,8 +11,6 @@ defmodule DeltaCrdt.CausalCrdt do
   @type delta :: {k :: integer(), delta :: any()}
   @type delta_interval :: {a :: integer(), b :: integer(), delta :: delta()}
 
-  @opaque storage_format :: {crdt_state :: term(), sequence_number :: integer()}
-
   @moduledoc false
 
   defstruct node_id: nil,
