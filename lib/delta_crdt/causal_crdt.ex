@@ -380,6 +380,12 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
+  defp process_alive?({name, n}) when n == node(), do: Process.whereis(name) != nil
+
+  defp process_alive?({name, n}) do
+    Enum.member?(Node.list(), n) && :rpc.call(n, Process, :whereis, [name]) != nil
+  end
+
   defp process_alive?(pid) when node(pid) == node(), do: Process.alive?(pid)
 
   defp process_alive?(pid) do
