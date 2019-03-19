@@ -28,7 +28,7 @@ defmodule DeltaCrdt.CausalCrdt do
             outstanding_acks: %{}
 
   defmacrop strip_continue(tuple) do
-    if System.otp_release() |> String.to_integer() |> IO.inspect() > 20 do
+    if System.otp_release() |> String.to_integer() > 20 do
       tuple
     else
       quote do
