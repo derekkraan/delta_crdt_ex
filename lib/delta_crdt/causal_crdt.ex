@@ -147,6 +147,7 @@ defmodule DeltaCrdt.CausalCrdt do
   defp sync_interval_or_state_to_all(state) do
     shipped_to =
       MapSet.difference(state.neighbours, MapSet.new(Map.keys(state.outstanding_acks)))
+      |> Enum.filter(&process_alive?/1)
       |> Enum.map(fn n -> sync_state_to_neighbour(n, state) end)
       |> Enum.filter(fn
         nil -> false
@@ -377,5 +378,11 @@ defmodule DeltaCrdt.CausalCrdt do
       nil -> GenServer.reply(reply_to, :ok)
       loc -> send(loc, {msg, reply_to})
     end
+  end
+
+  defp process_alive?(pid) when node(pid) == node(), do: Process.alive?(pid)
+
+  defp process_alive?(pid) do
+    Enum.member?(Node.list(), node(pid)) && :rpc.call(node(pid), Process, :alive?, [pid])
   end
 end
