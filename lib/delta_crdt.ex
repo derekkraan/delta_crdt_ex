@@ -104,7 +104,7 @@ defmodule DeltaCrdt do
           crdt :: GenServer.server(),
           function :: atom,
           arguments :: list(),
-          timeout :: pos_integer()
+          timeout :: timeout()
         ) :: :ok
   @doc """
   Mutate the CRDT synchronously.
@@ -132,7 +132,7 @@ defmodule DeltaCrdt do
   @doc """
   Read the state of the CRDT.
   """
-  @spec read(crdt :: GenServer.server(), timeout :: pos_integer()) :: crdt_state :: term()
+  @spec read(crdt :: GenServer.server(), timeout :: timeout()) :: crdt_state :: term()
   def read(crdt, timeout \\ 5000) do
     {crdt_module, state} = GenServer.call(crdt, :read, timeout)
     apply(crdt_module, :read, [state])
