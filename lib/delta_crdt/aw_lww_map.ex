@@ -220,6 +220,25 @@ defmodule DeltaCrdt.AWLWWMap do
     end)
   end
 
+  def join_diff(delta1, delta2) do
+    joined = join(delta1, delta2)
+
+    diff_keys = MapSet.to_list(delta2.keys)
+    result_diff = read(joined, diff_keys)
+    origin_diff = read(delta1, diff_keys)
+
+    diffs =
+      Enum.flat_map(diff_keys, fn key ->
+        case {Map.get(origin_diff, key), Map.get(result_diff, key)} do
+          {old, old} -> []
+          {_old, nil} -> [{:remove, key}]
+          {_old, new} -> [{:add, key, new}]
+        end
+      end)
+
+    {joined, diffs}
+  end
+
   @doc false
   def join(delta1, delta2) do
     new_dots = Dots.union(delta1.dots, delta2.dots)
@@ -302,5 +321,13 @@ defmodule DeltaCrdt.AWLWWMap do
       {{val, _ts}, _c} = Enum.max_by(values, fn {{_val, ts}, _c} -> ts end)
       {key, val}
     end)
+  end
+
+  def read(%{value: values}, keys) when is_list(keys) do
+    read(%{value: Map.take(values, keys)})
+  end
+
+  def read(crdt, key) do
+    read(crdt, [key])
   end
 end
