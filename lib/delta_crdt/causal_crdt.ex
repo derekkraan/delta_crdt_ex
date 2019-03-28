@@ -345,7 +345,13 @@ defmodule DeltaCrdt.CausalCrdt do
 
         case state.subscribe_updates do
           {prefix, subscriber_pid} ->
-            send(subscriber_pid, {prefix, diff})
+            try do
+              send(subscriber_pid, {prefix, diff})
+            rescue
+              e in ArgumentError ->
+                # if we can't reach the subscriber, then trigger process termination
+                Process.exit(self(), :normal)
+            end
 
           _ ->
             nil
