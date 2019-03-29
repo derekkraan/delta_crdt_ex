@@ -59,6 +59,7 @@ defmodule DeltaCrdt do
       |> Keyword.put_new(:sync_interval, @default_sync_interval)
       |> Keyword.put_new(:ship_interval, @default_ship_interval)
       |> Keyword.put_new(:ship_debounce, @default_ship_debounce)
+      |> IO.inspect()
 
     GenServer.start_link(DeltaCrdt.CausalCrdt, init_arg, Keyword.take(opts, [:name]))
   end
