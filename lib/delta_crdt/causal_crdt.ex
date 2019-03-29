@@ -16,6 +16,7 @@ defmodule DeltaCrdt.CausalCrdt do
   defstruct node_id: nil,
             name: nil,
             notify: nil,
+            subscribe_updates: nil,
             storage_module: nil,
             crdt_module: nil,
             crdt_state: nil,
@@ -52,8 +53,9 @@ defmodule DeltaCrdt.CausalCrdt do
 
     initial_state = %__MODULE__{
       node_id: :rand.uniform(1_000_000_000),
-      name: Keyword.get(opts, :name, nil),
+      name: Keyword.get(opts, :name),
       notify: Keyword.get(opts, :notify),
+      subscribe_updates: Keyword.get(opts, :subscribe_updates),
       storage_module: Keyword.get(opts, :storage_module),
       crdt_module: crdt_module,
       ship_debounce: Keyword.get(opts, :ship_debounce),
@@ -203,8 +205,7 @@ defmodule DeltaCrdt.CausalCrdt do
     if strict_expansion do
       send(neighbour, {:ack, self_ref, n})
 
-      new_state = apply_delta_interval(state, neighbour, delta_interval)
-      {:noreply, new_state}
+      {:noreply, update_state_with_delta(state, delta_interval)}
     else
       send(neighbour, {:nack, self_ref})
 
@@ -306,22 +307,7 @@ defmodule DeltaCrdt.CausalCrdt do
   defp handle_operation({function, args}, state) do
     delta = apply(state.crdt_module, function, args ++ [state.node_id, state.crdt_state])
 
-    case state.crdt_module.minimum_deltas(delta, state.crdt_state) do
-      [] ->
-        state
-
-      minimum_deltas ->
-        delta = Enum.reduce(minimum_deltas, &state.crdt_module.join/2)
-
-        new_crdt_state = state.crdt_module.join(state.crdt_state, delta)
-        new_deltas = Map.put(state.deltas, state.sequence_number, {self(), delta})
-        new_sequence_number = state.sequence_number + 1
-
-        Map.put(state, :deltas, new_deltas)
-        |> Map.put(:crdt_state, new_crdt_state)
-        |> Map.put(:sequence_number, new_sequence_number)
-        |> write_to_storage()
-    end
+    update_state_with_delta(state, delta)
   end
 
   defp garbage_collect_deltas(state) do
@@ -347,16 +333,31 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  defp apply_delta_interval(state, neighbour, delta_interval) do
-    case state.crdt_module.minimum_deltas(delta_interval, state.crdt_state) do
+  defp update_state_with_delta(state, delta) do
+    case state.crdt_module.minimum_deltas(delta, state.crdt_state) do
       [] ->
         state
 
       minimum_deltas ->
         delta = Enum.reduce(minimum_deltas, &state.crdt_module.join/2)
 
-        new_crdt_state = state.crdt_module.join(state.crdt_state, delta)
-        new_deltas = Map.put(state.deltas, state.sequence_number, {neighbour, delta})
+        {new_crdt_state, diff} = state.crdt_module.join_diff(state.crdt_state, delta)
+
+        case state.subscribe_updates do
+          {prefix, subscriber_pid} ->
+            try do
+              send(subscriber_pid, {prefix, diff})
+            rescue
+              e in ArgumentError ->
+                # if we can't reach the subscriber, then trigger process termination
+                Process.exit(self(), :normal)
+            end
+
+          _ ->
+            nil
+        end
+
+        new_deltas = Map.put(state.deltas, state.sequence_number, {self(), delta})
         new_sequence_number = state.sequence_number + 1
 
         Map.put(state, :deltas, new_deltas)
