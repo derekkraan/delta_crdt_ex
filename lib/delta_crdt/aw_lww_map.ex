@@ -166,8 +166,12 @@ defmodule DeltaCrdt.AWLWWMap do
         false
 
       [dot] ->
-        Dots.member?(state.dots, dot) && !MapSet.disjoint?(d.keys, state.keys) &&
-          Map.take(state.value, d.keys)
+        Dots.member?(state.dots, dot) &&
+          if Enum.empty?(d.keys) do
+            state.value
+          else
+            Map.take(state.value, d.keys)
+          end
           |> Enum.any?(fn {_k, val} ->
             Enum.any?(val, fn
               {_v, dots} -> MapSet.member?(dots, dot)
@@ -211,9 +215,16 @@ defmodule DeltaCrdt.AWLWWMap do
         key ->
           dots = Map.get(delta.value, key)
 
+          keys =
+            if Enum.empty?(delta.keys) do
+              delta.keys
+            else
+              MapSet.new([key])
+            end
+
           %__MODULE__{
             dots: MapSet.new([dot]),
-            keys: MapSet.new([key]),
+            keys: keys,
             value: %{key => dots}
           }
       end
@@ -251,17 +262,14 @@ defmodule DeltaCrdt.AWLWWMap do
 
   @doc false
   def join_or_maps(delta1, delta2, nested_joins) do
-    val1 = delta1.value
-    val2 = delta2.value
-
-    all_intersecting = Enum.empty?(delta1.keys) || Enum.empty?(delta2.keys)
+    all_intersecting = Enum.empty?(delta1.keys) && Enum.empty?(delta2.keys)
 
     intersecting_keys =
       if all_intersecting do
         # "no keys" means that we have to check every key
-        MapSet.new(Map.keys(val1) ++ Map.keys(val2))
+        MapSet.union(MapSet.new(Map.keys(delta1.value)), MapSet.new(Map.keys(delta2.value)))
       else
-        MapSet.intersection(delta1.keys, delta2.keys)
+        MapSet.union(delta1.keys, delta2.keys)
       end
 
     resolved_conflicts =
