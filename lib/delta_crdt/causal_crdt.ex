@@ -353,7 +353,7 @@ defmodule DeltaCrdt.CausalCrdt do
             try do
               send(subscriber_pid, {prefix, diff})
             rescue
-              e in ArgumentError ->
+              _e in ArgumentError ->
                 # if we can't reach the subscriber, then trigger process termination
                 Process.exit(self(), :normal)
             end
