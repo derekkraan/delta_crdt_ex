@@ -86,7 +86,12 @@ defmodule DeltaCrdt.CausalCrdt do
         Map.put(state, :sequence_number, sequence_number)
         |> Map.put(:crdt_state, crdt_state)
         |> Map.put(:node_id, node_id)
+        |> remove_crdt_state_keys()
     end
+  end
+
+  defp remove_crdt_state_keys(state) do
+    %{state | crdt_state: Map.put(state.crdt_state, :keys, MapSet.new())}
   end
 
   defp write_to_storage(%{storage_module: nil} = state) do
@@ -363,6 +368,7 @@ defmodule DeltaCrdt.CausalCrdt do
         Map.put(state, :deltas, new_deltas)
         |> Map.put(:crdt_state, new_crdt_state)
         |> Map.put(:sequence_number, new_sequence_number)
+        |> remove_crdt_state_keys()
         |> write_to_storage()
     end
   end
