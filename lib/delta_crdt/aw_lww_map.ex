@@ -30,10 +30,24 @@ defmodule DeltaCrdt.AWLWWMap do
 
     def next_dot(i, c = %MapSet{}) do
       Logger.warn("inefficient next_dot computation")
-      next_dot(i, compress(c))
+
+      {^i, curr_max} =
+        Enum.filter(c, fn
+          {^i, _x} -> true
+          _ -> false
+        end)
+        |> Enum.max_by(
+          fn
+            {^i, x} -> x
+            _ -> 0
+          end,
+          fn -> {i, 0} end
+        )
+
+      {i, curr_max + 1}
     end
 
-    def next_dot(i, c) do
+    def next_dot(i, c = %{}) do
       {i, Map.get(c, i, 0) + 1}
     end
 
@@ -84,11 +98,9 @@ defmodule DeltaCrdt.AWLWWMap do
     end
 
     def min_dots(dots = %MapSet{}) do
-      Enum.reduce(dots, %{}, fn {i, x}, min ->
-        Map.update(min, i, x, fn
-          min when min < x -> min
-          _min -> x
-        end)
+      Enum.group_by(dots, fn {i, _x} -> i end, fn {_i, x} -> x end)
+      |> Enum.map(fn {i, xs} ->
+        {i, Enum.min(xs)}
       end)
     end
 

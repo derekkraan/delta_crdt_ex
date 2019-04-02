@@ -1,4 +1,4 @@
-defmodule NewAWLWWMapTest do
+defmodule AWLWWMapTest do
   use ExUnit.Case
   use ExUnitProperties
 

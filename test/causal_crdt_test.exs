@@ -28,12 +28,32 @@ defmodule CausalCrdtTest do
   end
 
   test "garbage collection removes deltas", context do
-    DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "Kraan"])
+    DeltaCrdt.mutate(context.c1, :add, ["Derek", "Kraan"])
+    DeltaCrdt.mutate(context.c1, :add, ["Andrew", "Kraan"])
+    DeltaCrdt.mutate(context.c1, :add, ["Nathan", "Kraan"])
+    DeltaCrdt.mutate(context.c1, :add, ["Joshua", "Kraan"])
 
     Process.sleep(60)
 
-    assert %{"Derek" => "Kraan"} == DeltaCrdt.read(context.c2)
-    assert %{"Derek" => "Kraan"} == DeltaCrdt.read(context.c3)
+    assert %{"Derek" => "Kraan", "Andrew" => "Kraan", "Nathan" => "Kraan", "Joshua" => "Kraan"} ==
+             DeltaCrdt.read(context.c1)
+
+    assert %{"Derek" => "Kraan", "Andrew" => "Kraan", "Nathan" => "Kraan", "Joshua" => "Kraan"} ==
+             DeltaCrdt.read(context.c2)
+
+    assert %{"Derek" => "Kraan", "Andrew" => "Kraan", "Nathan" => "Kraan", "Joshua" => "Kraan"} ==
+             DeltaCrdt.read(context.c3)
+
+    DeltaCrdt.mutate(context.c1, :remove, ["Derek"])
+    DeltaCrdt.mutate(context.c1, :remove, ["Nathan"])
+    DeltaCrdt.mutate(context.c1, :remove, ["Joshua"])
+    DeltaCrdt.mutate(context.c1, :add, ["Elijah", "Kraan"])
+
+    Process.sleep(60)
+
+    assert %{"Andrew" => "Kraan", "Elijah" => "Kraan"} == DeltaCrdt.read(context.c1)
+    assert %{"Andrew" => "Kraan", "Elijah" => "Kraan"} == DeltaCrdt.read(context.c2)
+    assert %{"Andrew" => "Kraan", "Elijah" => "Kraan"} == DeltaCrdt.read(context.c3)
 
     GenServer.call(context.c1, :garbage_collect)
     GenServer.call(context.c2, :garbage_collect)
