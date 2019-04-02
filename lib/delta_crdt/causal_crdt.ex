@@ -215,7 +215,9 @@ defmodule DeltaCrdt.CausalCrdt do
       send(neighbour, {:nack, self_ref})
 
       Logger.error(
-        "Received delta from neighbour that is not a strict expansion. Sending `nack` to force sending whole state"
+        "Received delta from neighbour that is not a strict expansion. Sending `nack` to force sending whole state",
+        state_dots: inspect(state_dots),
+        delta_dots: inspect(delta_dots)
       )
 
       {:noreply, state}
