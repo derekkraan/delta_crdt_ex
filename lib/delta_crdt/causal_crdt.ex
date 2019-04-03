@@ -3,8 +3,6 @@ defmodule DeltaCrdt.CausalCrdt do
 
   require Logger
 
-  @outstanding_ack_timeout 20_000
-
   @ship_after_x_deltas 100
   @gc_interval 10_000
 
@@ -26,7 +24,8 @@ defmodule DeltaCrdt.CausalCrdt do
             deltas: %{},
             ack_map: %{},
             neighbours: MapSet.new(),
-            outstanding_acks: %{}
+            outstanding_acks: %{},
+            neighbour_monitors: %{}
 
   defmacrop strip_continue(tuple) do
     if System.otp_release() |> String.to_integer() > 20 do
@@ -162,25 +161,30 @@ defmodule DeltaCrdt.CausalCrdt do
       end)
       |> Map.new()
 
-    set_outstanding_ack_timeout(shipped_to)
-
     Map.merge(state.outstanding_acks, shipped_to)
   end
 
-  defp set_outstanding_ack_timeout(outstanding_acks) do
-    Enum.each(outstanding_acks, fn {neighbour, sequence_number} ->
-      Process.send_after(
-        self(),
-        {:cancel_outstanding_ack, neighbour, sequence_number},
-        @outstanding_ack_timeout
-      )
-    end)
+  def handle_info({:DOWN, ref, :process, _object, _reason}, state) do
+    {neighbour, _ref} =
+      Enum.find(state.neighbour_monitors, fn
+        {_n, ^ref} -> true
+        _ -> false
+      end)
+
+    new_monitors = Map.delete(state.neighbour_monitors, neighbour)
+
+    new_outstanding_acks = Map.delete(state.outstanding_acks, neighbour)
+
+    {:noreply,
+     %{state | neighbour_monitors: new_monitors, outstanding_acks: new_outstanding_acks}}
   end
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
 
   def handle_info({:set_neighbours, neighbours}, state) do
-    state = %{state | neighbours: MapSet.new(neighbours)}
+    state =
+      %{state | neighbours: MapSet.new(neighbours)}
+      |> monitor_neighbours()
 
     new_ack_map =
       Enum.filter(state.ack_map, fn {neighbour, _seq} ->
@@ -263,16 +267,6 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, state}
   end
 
-  def handle_info({:cancel_outstanding_ack, neighbour, sequence_number}, state) do
-    new_outstanding_acks =
-      case Map.get(state.outstanding_acks, neighbour) do
-        ^sequence_number -> Map.delete(state.outstanding_acks, neighbour)
-        _ -> state.outstanding_acks
-      end
-
-    {:noreply, %{state | outstanding_acks: new_outstanding_acks}}
-  end
-
   def handle_call(:delta_count, _from, state) do
     {:reply, Enum.count(state.deltas), state}
   end
@@ -295,9 +289,12 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_call(:sync, _from, state) do
+    state = monitor_neighbours(state)
     outstanding_acks = sync_interval_or_state_to_all(state)
 
-    {:reply, :ok, %{state | outstanding_acks: outstanding_acks}}
+    new_state = %{state | outstanding_acks: outstanding_acks}
+
+    {:reply, :ok, new_state}
   end
 
   def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),
@@ -315,6 +312,16 @@ defmodule DeltaCrdt.CausalCrdt do
     delta = apply(state.crdt_module, function, args ++ [state.node_id, state.crdt_state])
 
     update_state_with_delta(state, delta)
+  end
+
+  defp monitor_neighbours(state) do
+    new_monitors =
+      MapSet.difference(state.neighbours, MapSet.new(Map.keys(state.neighbour_monitors)))
+      |> Enum.reduce(state.neighbour_monitors, fn neighbour, monitors ->
+        Map.put(monitors, neighbour, Process.monitor(neighbour))
+      end)
+
+    Map.put(state, :neighbour_monitors, new_monitors)
   end
 
   defp garbage_collect_deltas(state) do
