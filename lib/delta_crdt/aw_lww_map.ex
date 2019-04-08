@@ -1,6 +1,5 @@
 defmodule DeltaCrdt.AWLWWMap do
-  defstruct keys: MapSet.new(),
-            dots: MapSet.new(),
+  defstruct dots: MapSet.new(),
             value: %{}
 
   require Logger
@@ -108,7 +107,7 @@ defmodule DeltaCrdt.AWLWWMap do
 
     case MapSet.size(rem.dots) do
       0 -> add
-      _ -> join(rem, add)
+      _ -> join(rem, add, [key])
     end
   end
 
@@ -127,7 +126,6 @@ defmodule DeltaCrdt.AWLWWMap do
 
     %__MODULE__{
       dots: MapSet.new(c_p),
-      keys: MapSet.new([key]),
       value: %{key => val}
     }
   end
@@ -143,7 +141,6 @@ defmodule DeltaCrdt.AWLWWMap do
 
     %__MODULE__{
       dots: MapSet.new(to_remove_dots),
-      keys: MapSet.new([key]),
       value: %{}
     }
   end
@@ -153,138 +150,29 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   @doc false
-  def minimum_deltas(delta, state) do
-    join_decomposition(delta)
-    |> Enum.filter(fn delta -> expansion?(delta, state) end)
-  end
-
-  @doc false
-  def expansion?(%{value: values} = d, state) when map_size(values) == 0 do
-    # check remove expansion
-    case Enum.to_list(d.dots) do
-      [] ->
-        false
-
-      [dot] ->
-        Dots.member?(state.dots, dot) &&
-          if Enum.empty?(d.keys) do
-            state.value
-          else
-            Map.take(state.value, d.keys)
-          end
-          |> Enum.any?(fn {_k, val} ->
-            Enum.any?(val, fn
-              {_v, dots} -> MapSet.member?(dots, dot)
-            end)
-          end)
-    end
-  end
-
-  @doc false
-  def expansion?(d, state) do
-    # check add expansion
-
-    case Enum.to_list(d.dots) do
-      [] -> false
-      [dot] -> !Dots.member?(state.dots, dot)
-    end
-  end
-
-  defp dots_to_deltas(%{value: val}) do
-    Enum.flat_map(val, fn {key, dot_map} ->
-      Enum.flat_map(dot_map, fn {_key, dots} ->
-        Enum.map(dots, fn dot -> {dot, key} end)
-      end)
-    end)
-    |> Map.new()
-  end
-
-  @doc false
-  def join_decomposition(delta) do
-    d2d = dots_to_deltas(delta)
-
-    Enum.map(Dots.decompress(delta.dots), fn dot ->
-      case Map.get(d2d, dot) do
-        nil ->
-          %__MODULE__{
-            dots: MapSet.new([dot]),
-            keys: delta.keys,
-            value: %{}
-          }
-
-        key ->
-          dots = Map.get(delta.value, key)
-
-          keys =
-            if Enum.empty?(delta.keys) do
-              delta.keys
-            else
-              MapSet.new([key])
-            end
-
-          %__MODULE__{
-            dots: MapSet.new([dot]),
-            keys: keys,
-            value: %{key => dots}
-          }
-      end
-    end)
-  end
-
-  def join_diff(delta1, delta2) do
-    joined = join(delta1, delta2)
-
-    diff_keys = MapSet.to_list(delta2.keys)
-    result_diff = read(joined, diff_keys)
-    origin_diff = read(delta1, diff_keys)
-
-    diffs =
-      Enum.flat_map(diff_keys, fn key ->
-        case {Map.get(origin_diff, key), Map.get(result_diff, key)} do
-          {old, old} -> []
-          {_old, nil} -> [{:remove, key}]
-          {_old, new} -> [{:add, key, new}]
-        end
-      end)
-
-    {joined, diffs}
-  end
-
-  @doc false
-  def join(delta1, delta2) do
+  def join(delta1, delta2, keys) do
     new_dots = Dots.union(delta1.dots, delta2.dots)
-    new_keys = MapSet.union(delta1.keys, delta2.keys)
 
-    join_or_maps(delta1, delta2, [:join_or_maps, :join_dot_sets])
+    join_or_maps(delta1, delta2, [:join_or_maps, :join_dot_sets], keys)
     |> Map.put(:dots, new_dots)
-    |> Map.put(:keys, new_keys)
   end
 
   @doc false
-  def join_or_maps(delta1, delta2, nested_joins) do
-    all_intersecting = Enum.empty?(delta1.keys) && Enum.empty?(delta2.keys)
-
-    intersecting_keys =
-      if all_intersecting do
-        # "no keys" means that we have to check every key
-        MapSet.union(MapSet.new(Map.keys(delta1.value)), MapSet.new(Map.keys(delta2.value)))
-      else
-        MapSet.union(delta1.keys, delta2.keys)
-      end
-
+  def join_or_maps(delta1, delta2, nested_joins, keys) do
     resolved_conflicts =
-      Enum.flat_map(intersecting_keys, fn key ->
-        sub_delta1 =
-          Map.put(delta1, :value, Map.get(delta1.value, key, %{}))
-          |> Map.put(:keys, MapSet.new())
+      Enum.flat_map(keys, fn key ->
+        sub_delta1 = Map.put(delta1, :value, Map.get(delta1.value, key, %{}))
 
-        sub_delta2 =
-          Map.put(delta2, :value, Map.get(delta2.value, key, %{}))
-          |> Map.put(:keys, MapSet.new())
+        sub_delta2 = Map.put(delta2, :value, Map.get(delta2.value, key, %{}))
+
+        keys =
+          (Map.keys(sub_delta1.value) ++ Map.keys(sub_delta2.value))
+          |> Enum.uniq()
 
         [next_join | other_joins] = nested_joins
 
-        %{value: new_sub} = apply(__MODULE__, next_join, [sub_delta1, sub_delta2, other_joins])
+        %{value: new_sub} =
+          apply(__MODULE__, next_join, [sub_delta1, sub_delta2, other_joins, keys])
 
         if Enum.empty?(new_sub) do
           []
@@ -295,13 +183,9 @@ defmodule DeltaCrdt.AWLWWMap do
       |> Map.new()
 
     new_val =
-      if all_intersecting do
-        resolved_conflicts
-      else
-        Map.drop(delta1.value, intersecting_keys)
-        |> Map.merge(Map.drop(delta2.value, intersecting_keys))
-        |> Map.merge(resolved_conflicts)
-      end
+      Map.drop(delta1.value, keys)
+      |> Map.merge(Map.drop(delta2.value, keys))
+      |> Map.merge(resolved_conflicts)
 
     %__MODULE__{
       value: new_val
@@ -309,7 +193,7 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   @doc false
-  def join_dot_sets(%{value: s1, dots: c1}, %{value: s2, dots: c2}, []) do
+  def join_dot_sets(%{value: s1, dots: c1}, %{value: s2, dots: c2}, [], _keys) do
     s1 = MapSet.new(s1)
     s2 = MapSet.new(s2)
 

@@ -23,7 +23,8 @@ defmodule AWLWWMapPropertyTest do
         assert %{key => val} ==
                  AWLWWMap.join(
                    AWLWWMap.compress_dots(AWLWWMap.new()),
-                   AWLWWMap.add(key, val, node_id, AWLWWMap.compress_dots(AWLWWMap.new()))
+                   AWLWWMap.add(key, val, node_id, AWLWWMap.compress_dots(AWLWWMap.new())),
+                   [key]
                  )
                  |> AWLWWMap.read()
       end
@@ -36,10 +37,10 @@ defmodule AWLWWMapPropertyTest do
         operations
         |> Enum.reduce(AWLWWMap.compress_dots(AWLWWMap.new()), fn
           {:add, key, val, node_id}, map ->
-            AWLWWMap.join(map, AWLWWMap.add(key, val, node_id, map))
+            AWLWWMap.join(map, AWLWWMap.add(key, val, node_id, map), [key])
 
           {:remove, key, _val, node_id}, map ->
-            AWLWWMap.join(map, AWLWWMap.remove(key, node_id, map))
+            AWLWWMap.join(map, AWLWWMap.remove(key, node_id, map), [key])
         end)
         |> AWLWWMap.read()
 
@@ -63,99 +64,13 @@ defmodule AWLWWMapPropertyTest do
                 val <- term(),
                 node_id <- term() do
         crdt = AWLWWMap.compress_dots(AWLWWMap.new())
-        crdt = AWLWWMap.join(crdt, AWLWWMap.add(key, val, node_id, crdt))
+        crdt = AWLWWMap.join(crdt, AWLWWMap.add(key, val, node_id, crdt), [key])
 
         crdt =
-          AWLWWMap.join(crdt, AWLWWMap.remove(key, node_id, crdt))
+          AWLWWMap.join(crdt, AWLWWMap.remove(key, node_id, crdt), [key])
           |> AWLWWMap.read()
 
         assert %{} == crdt
-      end
-    end
-  end
-
-  describe ".clear/2" do
-    property "removes all elements from the map", context do
-      check all ops <- list_of(context.operation_gen),
-                node_id <- term() do
-        populated_map =
-          Enum.reduce(ops, AWLWWMap.compress_dots(AWLWWMap.new()), fn
-            {:add, key, val, node_id}, map ->
-              AWLWWMap.add(key, val, node_id, map)
-              |> AWLWWMap.join(map)
-
-            {:remove, key, _val, node_id}, map ->
-              AWLWWMap.remove(key, node_id, map)
-              |> AWLWWMap.join(map)
-          end)
-
-        cleared_map =
-          AWLWWMap.clear(node_id, populated_map)
-          |> AWLWWMap.join(populated_map)
-          |> AWLWWMap.read()
-
-        assert %{} == cleared_map
-      end
-    end
-  end
-
-  describe ".join_decomposition/1" do
-    property "join decomposition has one dot per decomposed delta" do
-      check all ops <- list_of(AWLWWMapProperty.random_operation()) do
-        # make 1 delta
-        joined_delta =
-          Enum.reduce(ops, AWLWWMap.compress_dots(AWLWWMap.new()), fn op, st ->
-            delta = op.(st)
-            AWLWWMap.join(st, delta)
-          end)
-
-        # decompose delta
-        decomposed_ops = AWLWWMap.join_decomposition(joined_delta)
-
-        Enum.each(decomposed_ops, fn op ->
-          assert 1 = MapSet.size(op.dots)
-        end)
-      end
-    end
-
-    property "join decomposition when joined returns itself" do
-      check all ops <- list_of(AWLWWMapProperty.random_operation()) do
-        joined_delta =
-          Enum.reduce(ops, AWLWWMap.compress_dots(AWLWWMap.new()), fn op, st ->
-            delta = op.(st)
-            AWLWWMap.join(st, delta)
-          end)
-
-        decomposed_ops = AWLWWMap.join_decomposition(joined_delta)
-
-        rejoined_delta = Enum.reduce(decomposed_ops, AWLWWMap.new(), &AWLWWMap.join/2)
-
-        assert Map.equal?(AWLWWMap.read(rejoined_delta), AWLWWMap.read(joined_delta))
-      end
-    end
-  end
-
-  describe ".expansion?/2" do
-    property "no operation is a strict expansion of itself" do
-      check all op <- AWLWWMapProperty.random_operation() do
-        op = op.(AWLWWMap.compress_dots(AWLWWMap.new()))
-
-        assert false == AWLWWMap.expansion?(op, op)
-      end
-    end
-
-    property "operation can be applied and then is no longer strict expansion" do
-      check all [op1, op2] <- list_of(AWLWWMapProperty.random_operation(), length: 2),
-                max_run_time: 2000,
-                max_runs: 2000 do
-        initial = AWLWWMap.compress_dots(AWLWWMap.new())
-        op1 = op1.(initial)
-        op2 = op2.(AWLWWMap.join(op1, initial))
-        state = AWLWWMap.join(op1, op2)
-
-        Enum.each(AWLWWMap.join_decomposition(op2), fn op ->
-          assert false == AWLWWMap.expansion?(op, state)
-        end)
       end
     end
   end

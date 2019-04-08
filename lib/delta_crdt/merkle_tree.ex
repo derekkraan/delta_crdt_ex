@@ -77,7 +77,7 @@ defmodule MerkleTree do
   def partial_tree(%{children: {_a, b}}, levels, <<1::1, rest_loc::bits>>),
     do: partial_tree(b, levels, rest_loc)
 
-  def partial_tree(%{children: %{} = values} = tree, _levels, _loc) do
+  def partial_tree(%{children: %{}} = tree, _levels, _loc) do
     tree
   end
 

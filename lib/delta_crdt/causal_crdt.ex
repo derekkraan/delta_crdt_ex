@@ -3,11 +3,6 @@ defmodule DeltaCrdt.CausalCrdt do
 
   require Logger
 
-  @outstanding_ack_timeout 20_000
-
-  @ship_after_x_deltas 100
-  @gc_interval 10_000
-
   @type delta :: {k :: integer(), delta :: any()}
   @type delta_interval :: {a :: integer(), b :: integer(), delta :: delta()}
 
@@ -15,18 +10,13 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defstruct node_id: nil,
             name: nil,
-            notify: nil,
             subscribe_updates: nil,
             storage_module: nil,
             crdt_module: nil,
             crdt_state: nil,
-            shipped_sequence_number: 0,
+            merkle_tree: %MerkleTree{},
             sequence_number: 0,
-            ship_debounce: 0,
-            deltas: %{},
-            ack_map: %{},
-            neighbours: MapSet.new(),
-            outstanding_acks: %{}
+            neighbours: MapSet.new()
 
   defmacrop strip_continue(tuple) do
     if System.otp_release() |> String.to_integer() > 20 do
@@ -43,9 +33,7 @@ defmodule DeltaCrdt.CausalCrdt do
   ### GenServer callbacks
 
   def init(opts) do
-    DeltaCrdt.Periodic.start_link(:garbage_collect, @gc_interval)
     DeltaCrdt.Periodic.start_link(:sync, Keyword.get(opts, :sync_interval))
-    DeltaCrdt.Periodic.start_link(:try_ship_client, Keyword.get(opts, :ship_interval))
 
     Process.flag(:trap_exit, true)
 
@@ -54,11 +42,9 @@ defmodule DeltaCrdt.CausalCrdt do
     initial_state = %__MODULE__{
       node_id: :rand.uniform(1_000_000_000),
       name: Keyword.get(opts, :name),
-      notify: Keyword.get(opts, :notify),
       subscribe_updates: Keyword.get(opts, :subscribe_updates),
       storage_module: Keyword.get(opts, :storage_module),
       crdt_module: crdt_module,
-      ship_debounce: Keyword.get(opts, :ship_debounce),
       crdt_state: crdt_module.new() |> crdt_module.compress_dots()
     }
 
@@ -69,8 +55,10 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, read_from_storage(state)}
   end
 
+  # TODO this won't sync everything anymore, since syncing is now a 2-step process.
+  # Figure out how to do this properly. Maybe with a `receive` block.
   def terminate(_reason, state) do
-    sync_interval_or_state_to_all(%{state | outstanding_acks: %{}})
+    sync_interval_or_state_to_all(state)
   end
 
   defp read_from_storage(%{storage_module: nil} = state) do
@@ -108,73 +96,24 @@ defmodule DeltaCrdt.CausalCrdt do
     state
   end
 
-  defp resolve_neighbour(neighbour) when is_pid(neighbour), do: neighbour
-
-  defp resolve_neighbour({_name, _node_ref} = ref), do: GenServer.whereis(ref)
-
   defp sync_state_to_neighbour(neighbour, _state) when neighbour == self(), do: nil
 
   defp sync_state_to_neighbour(neighbour, state) do
-    remote_acked = Map.get(state.ack_map, neighbour, 0)
-
-    if Enum.min(Map.keys(state.deltas), fn -> state.sequence_number end) > remote_acked do
-      send(
-        neighbour,
-        {:delta, {self(), neighbour, state.crdt_state}, state.sequence_number}
-      )
-
-      {neighbour, state.sequence_number}
-    else
-      neighbour_pid = resolve_neighbour(neighbour)
-
-      Enum.filter(state.deltas, fn
-        {_i, {^neighbour_pid, _delta}} -> false
-        _ -> true
-      end)
-      |> Enum.filter(fn {i, _delta} -> remote_acked <= i && i < state.sequence_number end)
-      |> case do
-        [] ->
-          nil
-
-        deltas ->
-          if(remote_acked < state.sequence_number) do
-            delta_interval =
-              Enum.map(deltas, fn {_i, {_from, delta}} -> delta end)
-              |> Enum.reduce(fn delta, delta_interval ->
-                state.crdt_module.join(delta_interval, delta)
-              end)
-
-            send(neighbour, {:delta, {self(), neighbour, delta_interval}, state.sequence_number})
-            {neighbour, state.sequence_number}
-          end
-      end
-    end
+    send(neighbour, {:merkle_tree, state.merkle_tree, self()})
+    {neighbour, state.sequence_number}
   end
 
   defp sync_interval_or_state_to_all(state) do
-    shipped_to =
-      MapSet.difference(state.neighbours, MapSet.new(Map.keys(state.outstanding_acks)))
-      |> Enum.filter(&process_alive?/1)
-      |> Enum.map(fn n -> sync_state_to_neighbour(n, state) end)
-      |> Enum.filter(fn
-        nil -> false
-        {neighbour, sequence_number} -> {neighbour, sequence_number}
-      end)
-      |> Map.new()
-
-    set_outstanding_ack_timeout(shipped_to)
-
-    Map.merge(state.outstanding_acks, shipped_to)
-  end
-
-  defp set_outstanding_ack_timeout(outstanding_acks) do
-    Enum.each(outstanding_acks, fn {neighbour, sequence_number} ->
-      Process.send_after(
-        self(),
-        {:cancel_outstanding_ack, neighbour, sequence_number},
-        @outstanding_ack_timeout
-      )
+    state.neighbours
+    |> Enum.filter(&process_alive?/1)
+    |> Enum.map(fn n -> sync_state_to_neighbour(n, state) end)
+    |> Enum.filter(fn
+      nil -> false
+      {neighbour, sequence_number} -> {neighbour, sequence_number}
     end)
+    |> Map.new()
+
+    :ok
   end
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
@@ -182,122 +121,38 @@ defmodule DeltaCrdt.CausalCrdt do
   def handle_info({:set_neighbours, neighbours}, state) do
     state = %{state | neighbours: MapSet.new(neighbours)}
 
-    new_ack_map =
-      Enum.filter(state.ack_map, fn {neighbour, _seq} ->
-        MapSet.member?(state.neighbours, neighbour)
-      end)
-      |> Map.new()
-
-    new_outstanding_acks =
-      Enum.filter(state.outstanding_acks, fn {neighbour, _ack} ->
-        MapSet.member?(state.neighbours, neighbour)
-      end)
-      |> Map.new()
-
-    state = %{state | ack_map: new_ack_map, outstanding_acks: new_outstanding_acks}
-
-    outstanding_acks = sync_interval_or_state_to_all(state)
-
-    {:noreply, %{state | outstanding_acks: outstanding_acks}}
-  end
-
-  def handle_info({:delta, {neighbour, self_ref, delta_interval}, n}, state) do
-    %{dots: delta_dots} = delta_interval
-    %{crdt_state: %{dots: state_dots}} = state
-
-    strict_expansion = DeltaCrdt.AWLWWMap.Dots.strict_expansion?(state_dots, delta_dots)
-
-    if strict_expansion do
-      send(neighbour, {:ack, self_ref, n})
-
-      {:noreply, update_state_with_delta(state, delta_interval)}
-    else
-      send(neighbour, {:nack, self_ref})
-
-      Logger.error(
-        "Received delta from neighbour that is not a strict expansion. Sending `nack` to force sending whole state",
-        state_dots: inspect(state_dots),
-        delta_dots: inspect(delta_dots)
-      )
-
-      {:noreply, state}
-    end
-  end
-
-  def handle_info({:ack, neighbour, n}, state) do
-    if(Map.get(state.ack_map, neighbour, 0) > n) do
-      {:noreply, state}
-    else
-      new_ack_map = Map.put(state.ack_map, neighbour, n)
-      new_outstanding_acks = Map.delete(state.outstanding_acks, neighbour)
-      {:noreply, %{state | ack_map: new_ack_map, outstanding_acks: new_outstanding_acks}}
-    end
-  end
-
-  def handle_info({:nack, neighbour}, state) do
-    new_ack_map = Map.put(state.ack_map, neighbour, 0)
-    {:noreply, %{state | ack_map: new_ack_map}}
-  end
-
-  def handle_info({:ship_client, reply_to, s}, %{sequence_number: s} = state) do
-    send_notification(state, reply_to)
-    {:noreply, %{state | shipped_sequence_number: s}}
-  end
-
-  def handle_info(
-        {:ship_client, reply_to, _s},
-        %{sequence_number: seq, shipped_sequence_number: shipped} = state
-      )
-      when seq - shipped > @ship_after_x_deltas do
-    send_notification(state, reply_to)
-    {:noreply, %{state | shipped_sequence_number: seq}}
-  end
-
-  def handle_info({:ship_client, reply_to, _s}, state) do
-    Process.send_after(
-      self(),
-      {:ship_client, reply_to, state.sequence_number},
-      state.ship_debounce
-    )
+    sync_interval_or_state_to_all(state)
 
     {:noreply, state}
   end
 
-  def handle_info({:cancel_outstanding_ack, neighbour, sequence_number}, state) do
-    new_outstanding_acks =
-      case Map.get(state.outstanding_acks, neighbour) do
-        ^sequence_number -> Map.delete(state.outstanding_acks, neighbour)
-        _ -> state.outstanding_acks
-      end
+  def handle_info({:merkle_tree, merkle_tree, from}, state) do
+    case MerkleTree.diff(state.merkle_tree, merkle_tree) do
+      [] ->
+        nil
 
-    {:noreply, %{state | outstanding_acks: new_outstanding_acks}}
-  end
+      diff_keys ->
+        send(from, {:request_diff, diff_keys, self()})
+    end
 
-  def handle_call(:delta_count, _from, state) do
-    {:reply, Enum.count(state.deltas), state}
-  end
-
-  def handle_call(:garbage_collect, _from, state) do
-    {:reply, :ok, garbage_collect_deltas(state)}
-  end
-
-  def handle_call(
-        :try_ship_client,
-        _f,
-        %{shipped_sequence_number: same, sequence_number: same} = state
-      ) do
-    {:reply, :ok, state}
-  end
-
-  def handle_call(:try_ship_client, from, state) do
-    Process.send_after(self(), {:ship_client, from, state.sequence_number}, state.ship_debounce)
     {:noreply, state}
+  end
+
+  def handle_info({:request_diff, keys, from}, state) do
+    diff = %{state.crdt_state | value: Map.take(state.crdt_state.value, keys)}
+    send(from, {:diff, diff, keys})
+    {:noreply, state}
+  end
+
+  def handle_info({:diff, diff, keys}, state) do
+    new_state = update_state_with_delta(state, diff, keys)
+    {:noreply, new_state}
   end
 
   def handle_call(:sync, _from, state) do
-    outstanding_acks = sync_interval_or_state_to_all(state)
+    sync_interval_or_state_to_all(state)
 
-    {:reply, :ok, %{state | outstanding_acks: outstanding_acks}}
+    {:reply, :ok, state}
   end
 
   def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),
@@ -311,81 +166,56 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, handle_operation(operation, state)}
   end
 
-  defp handle_operation({function, args}, state) do
-    delta = apply(state.crdt_module, function, args ++ [state.node_id, state.crdt_state])
+  defp handle_operation({function, [key | rest_args]}, state) do
+    delta =
+      apply(state.crdt_module, function, [key | rest_args] ++ [state.node_id, state.crdt_state])
 
-    update_state_with_delta(state, delta)
+    update_state_with_delta(state, delta, [key])
   end
 
-  defp garbage_collect_deltas(state) do
-    pid = self()
+  defp diff(old_state, new_state, keys) do
+    old = old_state.crdt_module.read(old_state.crdt_state, keys)
+    new = old_state.crdt_module.read(new_state.crdt_state, keys)
 
-    neighbours =
-      Enum.filter(state.neighbours, fn
-        ^pid -> false
-        _ -> true
+    Enum.flat_map(keys, fn key ->
+      case {Map.get(old, key), Map.get(new, key)} do
+        {old, old} -> []
+        {_old, nil} -> [{:remove, key}]
+        {_old, new} -> [{:add, key, new}]
+      end
+    end)
+  end
+
+  defp update_state_with_delta(state, delta, keys) do
+    new_crdt_state = state.crdt_module.join(state.crdt_state, delta, keys)
+    diffs = diff(state, Map.put(state, :crdt_state, new_crdt_state), keys)
+
+    new_merkle_tree =
+      Enum.reduce(diffs, state.merkle_tree, fn
+        {:add, key, value}, tree -> MerkleTree.put_in_tree(tree, {key, value})
+        {:remove, key}, tree -> MerkleTree.remove_key(tree, key)
       end)
 
-    if Enum.empty?(neighbours) do
-      Map.put(state, :deltas, %{})
-    else
-      l =
-        state.neighbours
-        |> Enum.filter(fn neighbour -> Map.has_key?(state.ack_map, neighbour) end)
-        |> Enum.map(fn neighbour -> Map.get(state.ack_map, neighbour, 0) end)
-        |> Enum.min(fn -> 0 end)
+    send_subscriber_updates(state, diffs)
 
-      new_deltas = state.deltas |> Enum.filter(fn {i, _delta} -> i >= l end) |> Map.new()
-      Map.put(state, :deltas, new_deltas)
-    end
+    Map.put(state, :crdt_state, new_crdt_state)
+    |> Map.put(:merkle_tree, new_merkle_tree)
+    |> write_to_storage()
   end
 
-  defp update_state_with_delta(state, delta) do
-    case state.crdt_module.minimum_deltas(delta, state.crdt_state) do
-      [] ->
-        state
-
-      minimum_deltas ->
-        delta = Enum.reduce(minimum_deltas, &state.crdt_module.join/2)
-
-        {new_crdt_state, diff} = state.crdt_module.join_diff(state.crdt_state, delta)
-
-        case state.subscribe_updates do
-          {prefix, subscriber_pid} ->
-            try do
-              send(subscriber_pid, {prefix, diff})
-            rescue
-              _e in ArgumentError ->
-                # if we can't reach the subscriber, then trigger process termination
-                Process.exit(self(), :normal)
-            end
-
-          _ ->
-            nil
+  defp send_subscriber_updates(state, diffs) do
+    case state.subscribe_updates do
+      {prefix, subscriber_pid} ->
+        try do
+          send(subscriber_pid, {prefix, diffs})
+        rescue
+          _e in ArgumentError ->
+            # if we can't reach the subscriber, then trigger process termination
+            Process.exit(self(), :normal)
         end
 
-        new_deltas = Map.put(state.deltas, state.sequence_number, {self(), delta})
-        new_sequence_number = state.sequence_number + 1
-
-        Map.put(state, :deltas, new_deltas)
-        |> Map.put(:crdt_state, new_crdt_state)
-        |> Map.put(:sequence_number, new_sequence_number)
-        |> remove_crdt_state_keys()
-        |> write_to_storage()
-    end
-  end
-
-  defp send_notification(%{notify: nil}, reply_to) do
-    GenServer.reply(reply_to, :ok)
-  end
-
-  defp send_notification(%{notify: {pid, msg}}, reply_to) when is_pid(pid),
-    do: send(pid, {msg, reply_to})
-
-  defp send_notification(%{notify: {pid, msg}}, reply_to) do
-    case Process.whereis(pid) do
-      nil -> GenServer.reply(reply_to, :ok)
-      loc -> send(loc, {msg, reply_to})
+      _ ->
+        nil
     end
   end
 

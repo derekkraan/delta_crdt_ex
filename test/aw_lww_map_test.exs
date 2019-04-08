@@ -15,7 +15,7 @@ defmodule NewAWLWWMapTest do
     add2 = AWLWWMap.add(2, 2, :foo_node, add1)
 
     assert %{1 => 2, 2 => 2} =
-             AWLWWMap.join(add1, add2)
+             AWLWWMap.join(add1, add2, [1, 2])
              |> AWLWWMap.read()
   end
 
@@ -24,7 +24,7 @@ defmodule NewAWLWWMapTest do
     remove1 = AWLWWMap.remove(1, :foo_node, add1)
 
     assert %{} =
-             AWLWWMap.join(add1, remove1)
+             AWLWWMap.join(add1, remove1, [1])
              |> AWLWWMap.read()
   end
 
@@ -35,28 +35,15 @@ defmodule NewAWLWWMapTest do
     # TODO assert that the state doesn't include anything about value 2
 
     assert %{1 => 3} =
-             AWLWWMap.join(add1, add2)
+             AWLWWMap.join(add1, add2, [1])
              |> AWLWWMap.read()
-  end
-
-  test "can compute minimum deltas" do
-    add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
-    change1 = AWLWWMap.add(1, 3, :foo_node, add1)
-    remove1 = AWLWWMap.remove(1, :foo_node, add1)
-    remove2 = AWLWWMap.remove(2, :foo_node, add1)
-
-    assert [] = AWLWWMap.minimum_deltas(add1, add1)
-    refute Enum.member?(AWLWWMap.minimum_deltas(change1, add1), add1)
-
-    assert [remove1] == AWLWWMap.minimum_deltas(remove1, add1)
-    assert [] = AWLWWMap.minimum_deltas(remove2, add1)
   end
 
   test "can compute actual dots present" do
     add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
     change1 = AWLWWMap.add(1, 3, :foo_node, add1)
 
-    final = AWLWWMap.join(add1, change1)
+    final = AWLWWMap.join(add1, change1, [1])
 
     assert 1 = map_size(AWLWWMap.compress_dots(final) |> Map.get(:dots))
   end
@@ -76,11 +63,11 @@ defmodule NewAWLWWMapTest do
         |> Enum.reduce(AWLWWMap.new(), fn
           {:add, key, val, node_id}, map ->
             AWLWWMap.add(key, val, node_id, map)
-            |> AWLWWMap.join(map)
+            |> AWLWWMap.join(map, [key])
 
           {:remove, key, _val, node_id}, map ->
             AWLWWMap.remove(key, node_id, map)
-            |> AWLWWMap.join(map)
+            |> AWLWWMap.join(map, [key])
         end)
         |> AWLWWMap.read()
 

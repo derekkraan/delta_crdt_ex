@@ -27,34 +27,6 @@ defmodule CausalCrdtTest do
     assert %{"Derek" => "Kraan", Tonci: "Galic"} == DeltaCrdt.read(context.c1)
   end
 
-  test "garbage collection removes deltas", context do
-    DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "Kraan"])
-
-    Process.sleep(60)
-
-    assert %{"Derek" => "Kraan"} == DeltaCrdt.read(context.c2)
-    assert %{"Derek" => "Kraan"} == DeltaCrdt.read(context.c3)
-
-    GenServer.call(context.c1, :garbage_collect)
-    GenServer.call(context.c2, :garbage_collect)
-    GenServer.call(context.c3, :garbage_collect)
-
-    assert 0 = GenServer.call(context.c1, :delta_count)
-    assert 0 = GenServer.call(context.c2, :delta_count)
-    assert 0 = GenServer.call(context.c3, :delta_count)
-  end
-
-  test "garbage collection works in case of just 1 node" do
-    {:ok, c1} =
-      DeltaCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
-
-    DeltaCrdt.set_neighbours(c1, [c1])
-
-    DeltaCrdt.mutate_async(c1, :add, ["Derek", "Kraan"])
-    GenServer.call(c1, :garbage_collect)
-    assert 0 = GenServer.call(c1, :delta_count)
-  end
-
   test "storage backend can store and retrieve state" do
     DeltaCrdt.start_link(AWLWWMap, storage_module: MemoryStorage, name: :storage_test)
 
@@ -124,7 +96,7 @@ defmodule CausalCrdtTest do
     DeltaCrdt.set_neighbours(c2, [c1])
     DeltaCrdt.mutate(c1, :add, ["CRDT1", "represent"])
     DeltaCrdt.mutate(c2, :add, ["CRDT2", "also here"])
-    Process.sleep(100)
+    Process.sleep(200)
     assert %{"CRDT1" => "represent", "CRDT2" => "also here"} = DeltaCrdt.read(c1)
 
     # uncouple them
@@ -135,19 +107,16 @@ defmodule CausalCrdtTest do
     DeltaCrdt.mutate(c1, :add, ["CRDTb", "only present in 1"])
     DeltaCrdt.mutate(c1, :remove, ["CRDT1"])
 
-    Process.sleep(100)
+    Process.sleep(200)
 
     assert Map.has_key?(DeltaCrdt.read(c1), "CRDTa")
     refute Map.has_key?(DeltaCrdt.read(c2), "CRDTa")
-
-    GenServer.call(c1, :garbage_collect)
-    GenServer.call(c2, :garbage_collect)
 
     # make them neighbours again
     DeltaCrdt.set_neighbours(c1, [c2])
     DeltaCrdt.set_neighbours(c2, [c1])
 
-    Process.sleep(1000)
+    Process.sleep(200)
 
     assert Map.has_key?(DeltaCrdt.read(c1), "CRDTa")
     refute Map.has_key?(DeltaCrdt.read(c1), "CRDT1")
