@@ -26,6 +26,7 @@ defmodule DeltaCrdt.MixProject do
       {:benchee, ">= 0.0.0", only: :dev, runtime: false},
       {:exprof, "~> 0.2.0", only: :dev, runtime: false},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
+      {:murmur, "~> 1.0"},
       {:stream_data, "~> 0.4", only: :test}
     ]
   end
