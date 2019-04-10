@@ -24,6 +24,7 @@ defmodule DeltaCrdt.MixProject do
   defp deps do
     [
       {:benchee, ">= 0.0.0", only: :dev, runtime: false},
+      {:benchee_html, ">= 0.0.0", only: :dev, runtime: false},
       {:exprof, "~> 0.2.0", only: :dev, runtime: false},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:murmur, "~> 1.0"},
