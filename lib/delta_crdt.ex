@@ -18,6 +18,7 @@ defmodule DeltaCrdt do
   iex> {:ok, crdt1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 3)
   iex> {:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 3)
   iex> DeltaCrdt.set_neighbours(crdt1, [crdt2])
+  iex> DeltaCrdt.set_neighbours(crdt2, [crdt1])
   iex> DeltaCrdt.read(crdt1)
   %{}
   iex> DeltaCrdt.mutate(crdt1, :add, ["CRDT", "is magic!"])
@@ -31,8 +32,9 @@ defmodule DeltaCrdt do
   @default_ship_interval 50
   @default_ship_debounce 50
 
+  @type diff :: {:add, key :: any(), value :: any()} | {:remove, key :: any()}
   @type crdt_option ::
-          {:notify, {pid(), term()}}
+          {:on_diffs, ([diff()] -> any())}
           | {:sync_interval, pos_integer()}
           | {:ship_interval, pos_integer()}
           | {:ship_debounce, pos_integer()}

@@ -10,7 +10,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defstruct node_id: nil,
             name: nil,
-            subscribe_updates: nil,
+            on_diffs: nil,
             storage_module: nil,
             crdt_module: nil,
             crdt_state: nil,
@@ -42,7 +42,7 @@ defmodule DeltaCrdt.CausalCrdt do
     initial_state = %__MODULE__{
       node_id: :rand.uniform(1_000_000_000),
       name: Keyword.get(opts, :name),
-      subscribe_updates: Keyword.get(opts, :subscribe_updates),
+      on_diffs: Keyword.get(opts, :on_diffs, fn _diffs -> nil end),
       storage_module: Keyword.get(opts, :storage_module),
       crdt_module: crdt_module,
       crdt_state: crdt_module.new() |> crdt_module.compress_dots()
@@ -70,9 +70,10 @@ defmodule DeltaCrdt.CausalCrdt do
       nil ->
         state
 
-      {node_id, sequence_number, crdt_state} ->
+      {node_id, sequence_number, crdt_state, merkle_tree} ->
         Map.put(state, :sequence_number, sequence_number)
         |> Map.put(:crdt_state, crdt_state)
+        |> Map.put(:merkle_tree, merkle_tree)
         |> Map.put(:node_id, node_id)
         |> remove_crdt_state_keys()
     end
@@ -90,7 +91,7 @@ defmodule DeltaCrdt.CausalCrdt do
     :ok =
       state.storage_module.write(
         state.name,
-        {state.node_id, state.sequence_number, state.crdt_state}
+        {state.node_id, state.sequence_number, state.crdt_state, state.merkle_tree}
       )
 
     state
@@ -104,14 +105,8 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp sync_interval_or_state_to_all(state) do
-    state.neighbours
-    |> Enum.filter(&process_alive?/1)
-    |> Enum.map(fn n -> sync_state_to_neighbour(n, state) end)
-    |> Enum.filter(fn
-      nil -> false
-      {neighbour, sequence_number} -> {neighbour, sequence_number}
-    end)
-    |> Map.new()
+    Enum.filter(state.neighbours, &process_alive?/1)
+    |> Enum.each(fn n -> sync_state_to_neighbour(n, state) end)
 
     :ok
   end
@@ -132,7 +127,8 @@ defmodule DeltaCrdt.CausalCrdt do
         nil
 
       diff_keys ->
-        send(from, {:request_diff, diff_keys, self()})
+        diff = %{state.crdt_state | value: Map.take(state.crdt_state.value, diff_keys)}
+        send(from, {:diff, diff, diff_keys})
     end
 
     {:noreply, state}
@@ -196,27 +192,11 @@ defmodule DeltaCrdt.CausalCrdt do
         {:remove, key}, tree -> MerkleTree.remove_key(tree, key)
       end)
 
-    send_subscriber_updates(state, diffs)
+    state.on_diffs.(diffs)
 
     Map.put(state, :crdt_state, new_crdt_state)
     |> Map.put(:merkle_tree, new_merkle_tree)
     |> write_to_storage()
-  end
-
-  defp send_subscriber_updates(state, diffs) do
-    case state.subscribe_updates do
-      {prefix, subscriber_pid} ->
-        try do
-          send(subscriber_pid, {prefix, diffs})
-        rescue
-          _e in ArgumentError ->
-            # if we can't reach the subscriber, then trigger process termination
-            Process.exit(self(), :normal)
-        end
-
-      _ ->
-        nil
-    end
   end
 
   defp process_alive?({name, n}) when n == node(), do: Process.whereis(name) != nil

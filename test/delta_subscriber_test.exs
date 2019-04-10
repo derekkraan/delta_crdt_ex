@@ -5,22 +5,24 @@ defmodule DeltaSubscriberTest do
   alias DeltaCrdt.AWLWWMap
 
   test "receives deltas updates" do
+    test_pid = self()
+
     {:ok, c1} =
       DeltaCrdt.start_link(AWLWWMap,
         sync_interval: 5,
         ship_interval: 5,
         ship_debounce: 5,
-        subscribe_updates: {:crdt_updated, self()}
+        on_diffs: fn diffs -> send(test_pid, {:diff, diffs}) end
       )
 
     :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
-    assert_received({:crdt_updated, [{:add, "Derek", "Kraan"}]})
+    assert_received({:diff, [{:add, "Derek", "Kraan"}]})
 
     :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
-    refute_received({:crdt_updated, [{:add, "Derek", "Kraan"}]})
+    refute_received({:diff, [{:add, "Derek", "Kraan"}]})
 
     :ok = DeltaCrdt.mutate(c1, :add, ["Derek", nil])
-    assert_received({:crdt_updated, [{:remove, "Derek"}]})
+    assert_received({:diff, [{:remove, "Derek"}]})
   end
 
   test "updates are bundled" do
@@ -31,12 +33,16 @@ defmodule DeltaSubscriberTest do
         ship_debounce: 5
       )
 
+    test_pid = self()
+
     {:ok, c2} =
       DeltaCrdt.start_link(AWLWWMap,
         sync_interval: 5,
         ship_interval: 5,
         ship_debounce: 5,
-        subscribe_updates: {:crdt_updated, self()}
+        on_diffs: fn diffs ->
+          send(test_pid, {:diff, diffs})
+        end
       )
 
     :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
@@ -44,8 +50,9 @@ defmodule DeltaSubscriberTest do
     :ok = DeltaCrdt.mutate(c1, :add, ["Nathan", "Kraan"])
 
     DeltaCrdt.set_neighbours(c1, [c2])
+    DeltaCrdt.set_neighbours(c2, [c1])
 
-    assert_receive({:crdt_updated, diff}, 100)
+    assert_receive({:diff, diff}, 100)
 
     assert Map.new(diff, fn {:add, k, v} -> {k, v} end) == %{
              "Derek" => "Kraan",
@@ -66,12 +73,14 @@ defmodule DeltaSubscriberTest do
       end
 
     check all ops <- list_of(op) do
+      test_pid = self()
+
       {:ok, c1} =
         DeltaCrdt.start_link(AWLWWMap,
           sync_interval: 5,
           ship_interval: 5,
           ship_debounce: 5,
-          subscribe_updates: {:update, self()}
+          on_diffs: fn diffs -> send(test_pid, {:diff, diffs}) end
         )
 
       Enum.each(ops, fn
@@ -94,7 +103,7 @@ defmodule DeltaSubscriberTest do
 
   defp construct_map(map \\ %{}) do
     receive do
-      {:update, diffs} ->
+      {:diff, diffs} ->
         Enum.reduce(diffs, map, fn
           {:add, k, v}, map ->
             Map.put(map, k, v)
