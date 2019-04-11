@@ -16,7 +16,8 @@ defmodule DeltaCrdt.CausalCrdt do
             crdt_state: nil,
             merkle_tree: %MerkleTree{},
             sequence_number: 0,
-            neighbours: MapSet.new()
+            neighbours: MapSet.new(),
+            sync_interval: nil
 
   defmacrop strip_continue(tuple) do
     if System.otp_release() |> String.to_integer() > 20 do
@@ -33,7 +34,7 @@ defmodule DeltaCrdt.CausalCrdt do
   ### GenServer callbacks
 
   def init(opts) do
-    DeltaCrdt.Periodic.start_link(:sync, Keyword.get(opts, :sync_interval))
+    send(self(), :sync)
 
     Process.flag(:trap_exit, true)
 
@@ -44,6 +45,7 @@ defmodule DeltaCrdt.CausalCrdt do
       name: Keyword.get(opts, :name),
       on_diffs: Keyword.get(opts, :on_diffs, fn _diffs -> nil end),
       storage_module: Keyword.get(opts, :storage_module),
+      sync_interval: Keyword.get(opts, :sync_interval),
       crdt_module: crdt_module,
       crdt_state: crdt_module.new() |> crdt_module.compress_dots()
     }
@@ -145,10 +147,12 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, new_state}
   end
 
-  def handle_call(:sync, _from, state) do
+  def handle_info(:sync, state) do
     sync_interval_or_state_to_all(state)
 
-    {:reply, :ok, state}
+    Process.send_after(self(), :sync, state.sync_interval)
+
+    {:noreply, state}
   end
 
   def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),
