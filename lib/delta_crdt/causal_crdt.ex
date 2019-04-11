@@ -192,7 +192,10 @@ defmodule DeltaCrdt.CausalCrdt do
         {:remove, key}, tree -> MerkleTree.remove_key(tree, key)
       end)
 
-    state.on_diffs.(diffs)
+    case diffs do
+      [] -> nil
+      diffs -> state.on_diffs.(diffs)
+    end
 
     Map.put(state, :crdt_state, new_crdt_state)
     |> Map.put(:merkle_tree, new_merkle_tree)
