@@ -10,7 +10,7 @@ defmodule MerkleTree do
   end
 
   def hash(thing) do
-    <<Murmur.hash_x86_32(thing)::size(32)>>
+    <<Murmur.hash_x86_32(thing)::size(16)>>
   end
 
   def location(key) do
@@ -33,7 +33,7 @@ defmodule MerkleTree do
   def diff(tree1, tree2, loc \\ <<>>)
 
   def diff(nil, nil, _loc), do: []
-  # def diff(tree, nil, _loc), do: diff(nil, tree)
+  def diff(tree, nil, loc), do: diff(nil, tree, loc)
   def diff(%{hash: hash}, %{hash: hash}, _loc), do: []
 
   def diff(nil, %{children: {_b1, _b2}} = tree, loc),
