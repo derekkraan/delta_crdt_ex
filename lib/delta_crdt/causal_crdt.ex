@@ -100,7 +100,7 @@ defmodule DeltaCrdt.CausalCrdt do
   defp sync_state_to_neighbour(neighbour, _state) when neighbour == self(), do: nil
 
   defp sync_state_to_neighbour(neighbour, state) do
-    send(neighbour, {:merkle_tree, state.merkle_tree, self()})
+    send(neighbour, {:get_diff_keys, state.merkle_tree, self()})
     {neighbour, state.sequence_number}
   end
 
@@ -121,22 +121,22 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, state}
   end
 
-  def handle_info({:merkle_tree, merkle_tree, from}, state) do
+  def handle_info({:get_diff_keys, merkle_tree, from}, state) do
     case MerkleTree.diff(state.merkle_tree, merkle_tree) do
       [] ->
         nil
 
       diff_keys ->
-        diff = %{state.crdt_state | value: Map.take(state.crdt_state.value, diff_keys)}
-        send(from, {:diff, diff, diff_keys})
+        send(from, {:diff_keys, diff_keys, self()})
     end
 
     {:noreply, state}
   end
 
-  def handle_info({:request_diff, keys, from}, state) do
-    diff = %{state.crdt_state | value: Map.take(state.crdt_state.value, keys)}
-    send(from, {:diff, diff, keys})
+  def handle_info({:diff_keys, diff_keys, from}, state) when is_list(diff_keys) do
+    diff = %{state.crdt_state | value: Map.take(state.crdt_state.value, diff_keys)}
+    send(from, {:diff, diff, diff_keys})
+
     {:noreply, state}
   end
 

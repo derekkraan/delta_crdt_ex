@@ -20,11 +20,22 @@ defmodule CausalCrdtTest do
     [c1: c1, c2: c2, c3: c3]
   end
 
-  test "works", context do
+  test "basic test case", context do
     DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "Kraan"])
     DeltaCrdt.mutate_async(context.c1, :add, [:Tonci, "Galic"])
 
     assert %{"Derek" => "Kraan", Tonci: "Galic"} == DeltaCrdt.read(context.c1)
+  end
+
+  test "synchronization happens TO neighbours" do
+    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 5)
+    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 5)
+    DeltaCrdt.set_neighbours(c1, [c2])
+    DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
+    DeltaCrdt.mutate(c2, :add, ["Tonci", "Galic"])
+    Process.sleep(100)
+    assert %{"Derek" => "Kraan"} == DeltaCrdt.read(c1)
+    assert %{"Derek" => "Kraan", "Tonci" => "Galic"} == DeltaCrdt.read(c2)
   end
 
   test "storage backend can store and retrieve state" do
