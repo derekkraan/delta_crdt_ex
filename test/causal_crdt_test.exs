@@ -4,32 +4,59 @@ defmodule CausalCrdtTest do
 
   alias DeltaCrdt.AWLWWMap
 
-  setup do
-    {:ok, c1} =
-      DeltaCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
+  describe "with context" do
+    setup do
+      {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
 
-    {:ok, c2} =
-      DeltaCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
+      {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
 
-    {:ok, c3} =
-      DeltaCrdt.start_link(AWLWWMap, sync_interval: 5, ship_interval: 5, ship_debounce: 5)
+      {:ok, c3} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
 
-    DeltaCrdt.set_neighbours(c1, [c1, c2, c3])
-    DeltaCrdt.set_neighbours(c2, [c1, c2, c3])
-    DeltaCrdt.set_neighbours(c3, [c1, c2, c3])
-    [c1: c1, c2: c2, c3: c3]
-  end
+      DeltaCrdt.set_neighbours(c1, [c1, c2, c3])
+      DeltaCrdt.set_neighbours(c2, [c1, c2, c3])
+      DeltaCrdt.set_neighbours(c3, [c1, c2, c3])
+      [c1: c1, c2: c2, c3: c3]
+    end
 
-  test "basic test case", context do
-    DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "Kraan"])
-    DeltaCrdt.mutate_async(context.c1, :add, [:Tonci, "Galic"])
+    test "basic test case", context do
+      DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "Kraan"])
+      DeltaCrdt.mutate_async(context.c1, :add, [:Tonci, "Galic"])
 
-    assert %{"Derek" => "Kraan", Tonci: "Galic"} == DeltaCrdt.read(context.c1)
+      assert %{"Derek" => "Kraan", Tonci: "Galic"} == DeltaCrdt.read(context.c1)
+    end
+
+    test "conflicting updates resolve", context do
+      DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "one_wins"])
+      DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "two_wins"])
+      DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "three_wins"])
+      Process.sleep(100)
+      assert %{"Derek" => "three_wins"} == DeltaCrdt.read(context.c1)
+      assert %{"Derek" => "three_wins"} == DeltaCrdt.read(context.c2)
+      assert %{"Derek" => "three_wins"} == DeltaCrdt.read(context.c3)
+    end
+
+    test "add wins", context do
+      DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "add_wins"])
+      DeltaCrdt.mutate_async(context.c2, :remove, ["Derek"])
+      Process.sleep(100)
+      assert %{"Derek" => "add_wins"} == DeltaCrdt.read(context.c1)
+      assert %{"Derek" => "add_wins"} == DeltaCrdt.read(context.c2)
+    end
+
+    test "can remove", context do
+      DeltaCrdt.mutate(context.c1, :add, ["Derek", "add_wins"])
+      Process.sleep(100)
+      assert %{"Derek" => "add_wins"} == DeltaCrdt.read(context.c2)
+      DeltaCrdt.mutate(context.c1, :remove, ["Derek"])
+      Process.sleep(100)
+      assert %{} == DeltaCrdt.read(context.c1)
+      assert %{} == DeltaCrdt.read(context.c2)
+    end
   end
 
   test "synchronization happens TO neighbours" do
-    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 5)
-    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 5)
+    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
+    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
     DeltaCrdt.set_neighbours(c1, [c2])
     DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
     DeltaCrdt.mutate(c2, :add, ["Tonci", "Galic"])
@@ -62,37 +89,9 @@ defmodule CausalCrdtTest do
     assert %{"Derek" => "Kraan"} = DeltaCrdt.read(:storage_test)
   end
 
-  test "conflicting updates resolve", context do
-    DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "one_wins"])
-    DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "two_wins"])
-    DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "three_wins"])
-    Process.sleep(100)
-    assert %{"Derek" => "three_wins"} == DeltaCrdt.read(context.c1)
-    assert %{"Derek" => "three_wins"} == DeltaCrdt.read(context.c2)
-    assert %{"Derek" => "three_wins"} == DeltaCrdt.read(context.c3)
-  end
-
-  test "add wins", context do
-    DeltaCrdt.mutate_async(context.c1, :add, ["Derek", "add_wins"])
-    DeltaCrdt.mutate_async(context.c2, :remove, ["Derek"])
-    Process.sleep(100)
-    assert %{"Derek" => "add_wins"} == DeltaCrdt.read(context.c1)
-    assert %{"Derek" => "add_wins"} == DeltaCrdt.read(context.c2)
-  end
-
-  test "can remove", context do
-    DeltaCrdt.mutate(context.c1, :add, ["Derek", "add_wins"])
-    Process.sleep(100)
-    assert %{"Derek" => "add_wins"} == DeltaCrdt.read(context.c2)
-    DeltaCrdt.mutate(context.c1, :remove, ["Derek"])
-    Process.sleep(100)
-    assert %{} == DeltaCrdt.read(context.c1)
-    assert %{} == DeltaCrdt.read(context.c2)
-  end
-
   test "syncs after adding neighbour" do
-    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
-    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
+    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
+    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
     DeltaCrdt.mutate(c1, :add, ["CRDT1", "represent"])
     DeltaCrdt.mutate(c2, :add, ["CRDT2", "also here"])
     DeltaCrdt.set_neighbours(c1, [c2])
@@ -101,12 +100,17 @@ defmodule CausalCrdtTest do
   end
 
   test "can sync after network partition" do
-    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
-    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, ship_interval: 5, ship_debounce: 5)
+    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
+
+    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
+
     DeltaCrdt.set_neighbours(c1, [c2])
     DeltaCrdt.set_neighbours(c2, [c1])
+
     DeltaCrdt.mutate(c1, :add, ["CRDT1", "represent"])
+
     DeltaCrdt.mutate(c2, :add, ["CRDT2", "also here"])
+
     Process.sleep(200)
     assert %{"CRDT1" => "represent", "CRDT2" => "also here"} = DeltaCrdt.read(c1)
 

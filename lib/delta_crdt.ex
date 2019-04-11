@@ -29,15 +29,11 @@ defmodule DeltaCrdt do
   """
 
   @default_sync_interval 50
-  @default_ship_interval 50
-  @default_ship_debounce 50
 
   @type diff :: {:add, key :: any(), value :: any()} | {:remove, key :: any()}
   @type crdt_option ::
           {:on_diffs, ([diff()] -> any())}
           | {:sync_interval, pos_integer()}
-          | {:ship_interval, pos_integer()}
-          | {:ship_debounce, pos_integer()}
           | {:storage_module, DeltaCrdt.Storage.t()}
 
   @type crdt_options :: [crdt_option()]
@@ -48,8 +44,6 @@ defmodule DeltaCrdt do
   There are a number of options you can specify to tweak the behaviour of DeltaCrdt:
   - `:notify` - when the state of the CRDT has changed, `msg` will be sent to `pid`. Varying `msg` allows a single process to listen for updates from multiple CRDTs.
   - `:sync_interval` - the delta CRDT will attempt to sync its local changes with its neighbours at this interval. Default is 50.
-  - `:ship_interval` - the delta CRDT will notify the listener at this interval, in ms. Default is 50.
-  - `:ship_debounce` - debounce notify messages, in milliseconds. Default is 50.
   """
   @spec start_link(
           crdt_module :: module(),
@@ -59,8 +53,6 @@ defmodule DeltaCrdt do
     init_arg =
       Keyword.put(opts, :crdt_module, crdt_module)
       |> Keyword.put_new(:sync_interval, @default_sync_interval)
-      |> Keyword.put_new(:ship_interval, @default_ship_interval)
-      |> Keyword.put_new(:ship_debounce, @default_ship_debounce)
 
     GenServer.start_link(DeltaCrdt.CausalCrdt, init_arg, Keyword.take(opts, [:name]))
   end

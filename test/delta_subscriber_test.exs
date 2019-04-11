@@ -9,9 +9,7 @@ defmodule DeltaSubscriberTest do
 
     {:ok, c1} =
       DeltaCrdt.start_link(AWLWWMap,
-        sync_interval: 5,
-        ship_interval: 5,
-        ship_debounce: 5,
+        sync_interval: 50,
         on_diffs: fn diffs -> send(test_pid, {:diff, diffs}) end
       )
 
@@ -28,18 +26,14 @@ defmodule DeltaSubscriberTest do
   test "updates are bundled" do
     {:ok, c1} =
       DeltaCrdt.start_link(AWLWWMap,
-        sync_interval: 5,
-        ship_interval: 5,
-        ship_debounce: 5
+        sync_interval: 50
       )
 
     test_pid = self()
 
     {:ok, c2} =
       DeltaCrdt.start_link(AWLWWMap,
-        sync_interval: 5,
-        ship_interval: 5,
-        ship_debounce: 5,
+        sync_interval: 50,
         on_diffs: fn diffs ->
           send(test_pid, {:diff, diffs})
         end
@@ -77,9 +71,7 @@ defmodule DeltaSubscriberTest do
 
       {:ok, c1} =
         DeltaCrdt.start_link(AWLWWMap,
-          sync_interval: 5,
-          ship_interval: 5,
-          ship_debounce: 5,
+          sync_interval: 50,
           on_diffs: fn diffs -> send(test_pid, {:diff, diffs}) end
         )
 
