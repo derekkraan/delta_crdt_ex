@@ -27,6 +27,7 @@ defmodule AWLWWMapPropertyTest do
                    [key]
                  )
                  |> AWLWWMap.read()
+                 |> Enum.into(%{})
       end
     end
   end
@@ -43,6 +44,7 @@ defmodule AWLWWMapPropertyTest do
             AWLWWMap.join(map, AWLWWMap.remove(key, node_id, map), [key])
         end)
         |> AWLWWMap.read()
+        |> Enum.into(%{})
 
       correct_result =
         operations
@@ -69,6 +71,7 @@ defmodule AWLWWMapPropertyTest do
         crdt =
           AWLWWMap.join(crdt, AWLWWMap.remove(key, node_id, crdt), [key])
           |> AWLWWMap.read()
+          |> Enum.into(%{})
 
         assert %{} == crdt
       end

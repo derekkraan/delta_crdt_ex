@@ -14,13 +14,13 @@ defmodule DeltaSubscriberTest do
       )
 
     :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
-    assert_received({:diff, [{:add, "Derek", "Kraan"}]})
+    assert_received({:diff, [{:put, "Derek", "Kraan"}]})
 
     :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
-    refute_received({:diff, [{:add, "Derek", "Kraan"}]})
+    refute_received({:diff, [{:put, "Derek", "Kraan"}]})
 
     :ok = DeltaCrdt.mutate(c1, :add, ["Derek", nil])
-    assert_received({:diff, [{:remove, "Derek"}]})
+    assert_received({:diff, [{:delete, "Derek"}]})
   end
 
   test "updates are bundled" do
@@ -48,7 +48,7 @@ defmodule DeltaSubscriberTest do
 
     assert_receive({:diff, diff}, 100)
 
-    assert Map.new(diff, fn {:add, k, v} -> {k, v} end) == %{
+    assert Map.new(diff, fn {:put, k, v} -> {k, v} end) == %{
              "Derek" => "Kraan",
              "Andrew" => "Kraan",
              "Nathan" => "Kraan"
@@ -97,10 +97,10 @@ defmodule DeltaSubscriberTest do
     receive do
       {:diff, diffs} ->
         Enum.reduce(diffs, map, fn
-          {:add, k, v}, map ->
+          {:put, k, v}, map ->
             Map.put(map, k, v)
 
-          {:remove, k}, map ->
+          {:delete, k}, map ->
             Map.delete(map, k)
         end)
         |> construct_map()

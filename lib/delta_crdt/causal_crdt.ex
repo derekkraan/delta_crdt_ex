@@ -14,7 +14,6 @@ defmodule DeltaCrdt.CausalCrdt do
             storage_module: nil,
             crdt_module: nil,
             crdt_state: nil,
-            merkle_tree: %MerkleTree{},
             sequence_number: 0,
             neighbours: MapSet.new(),
             sync_interval: nil
@@ -72,10 +71,9 @@ defmodule DeltaCrdt.CausalCrdt do
       nil ->
         state
 
-      {node_id, sequence_number, crdt_state, merkle_tree} ->
+      {node_id, sequence_number, crdt_state} ->
         Map.put(state, :sequence_number, sequence_number)
         |> Map.put(:crdt_state, crdt_state)
-        |> Map.put(:merkle_tree, merkle_tree)
         |> Map.put(:node_id, node_id)
         |> remove_crdt_state_keys()
     end
@@ -93,7 +91,7 @@ defmodule DeltaCrdt.CausalCrdt do
     :ok =
       state.storage_module.write(
         state.name,
-        {state.node_id, state.sequence_number, state.crdt_state, state.merkle_tree}
+        {state.node_id, state.sequence_number, state.crdt_state}
       )
 
     state
@@ -102,7 +100,7 @@ defmodule DeltaCrdt.CausalCrdt do
   defp sync_state_to_neighbour(neighbour, _state) when neighbour == self(), do: nil
 
   defp sync_state_to_neighbour(neighbour, state) do
-    send(neighbour, {:get_diff_keys, state.merkle_tree, state.crdt_state.dots, self()})
+    send(neighbour, {:get_diff_keys, state.crdt_state, state.crdt_state.dots, self()})
     {neighbour, state.sequence_number}
   end
 
@@ -123,8 +121,8 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, state}
   end
 
-  def handle_info({:get_diff_keys, merkle_tree, dots, from}, state) do
-    case MerkleTree.diff(state.merkle_tree, merkle_tree) do
+  def handle_info({:get_diff_keys, crdt_state, dots, from}, state) do
+    case MerkleMap.diff_keys(state.crdt_state.value, crdt_state.value) do
       [] ->
         nil
 
@@ -136,7 +134,12 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_info({:diff_keys, diff_keys, dots, from}, state) when is_list(diff_keys) do
-    diff = %{state.crdt_state | dots: dots, value: Map.take(state.crdt_state.value, diff_keys)}
+    diff = %{
+      state.crdt_state
+      | dots: dots,
+        value: MerkleMap.take(state.crdt_state.value, diff_keys)
+    }
+
     send(from, {:diff, diff, diff_keys})
 
     {:noreply, state}
@@ -173,28 +176,21 @@ defmodule DeltaCrdt.CausalCrdt do
     update_state_with_delta(state, delta, [key])
   end
 
-  defp diff(old_state, new_state, keys) do
-    old = old_state.crdt_module.read(old_state.crdt_state, keys)
-    new = old_state.crdt_module.read(new_state.crdt_state, keys)
-
-    Enum.flat_map(keys, fn key ->
-      case {Map.get(old, key), Map.get(new, key)} do
+  defp diffs(old_state, new_state) do
+    MerkleMap.diff_keys(old_state.crdt_state.value, new_state.crdt_state.value)
+    |> Enum.flat_map(fn key ->
+      case {old_state.crdt_module.get(old_state.crdt_state, key),
+            old_state.crdt_module.get(new_state.crdt_state, key)} do
         {old, old} -> []
-        {_old, nil} -> [{:remove, key}]
-        {_old, new} -> [{:add, key, new}]
+        {_old, nil} -> [{:delete, key}]
+        {_old, new} -> [{:put, key, new}]
       end
     end)
   end
 
   defp update_state_with_delta(state, delta, keys) do
     new_crdt_state = state.crdt_module.join(state.crdt_state, delta, keys)
-    diffs = diff(state, Map.put(state, :crdt_state, new_crdt_state), keys)
-
-    new_merkle_tree =
-      Enum.reduce(diffs, state.merkle_tree, fn
-        {:add, key, value}, tree -> MerkleTree.put_in_tree(tree, {key, value})
-        {:remove, key}, tree -> MerkleTree.remove_key(tree, key)
-      end)
+    diffs = diffs(state, Map.put(state, :crdt_state, new_crdt_state))
 
     case diffs do
       [] -> nil
@@ -202,7 +198,6 @@ defmodule DeltaCrdt.CausalCrdt do
     end
 
     Map.put(state, :crdt_state, new_crdt_state)
-    |> Map.put(:merkle_tree, new_merkle_tree)
     |> write_to_storage()
   end
 

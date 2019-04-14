@@ -129,6 +129,8 @@ defmodule DeltaCrdt do
   @spec read(crdt :: GenServer.server(), timeout :: timeout()) :: crdt_state :: term()
   def read(crdt, timeout \\ 5000) do
     {crdt_module, state} = GenServer.call(crdt, :read, timeout)
+
     apply(crdt_module, :read, [state])
+    |> Enum.into(%{})
   end
 end

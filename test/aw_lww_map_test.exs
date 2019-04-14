@@ -8,15 +8,18 @@ defmodule NewAWLWWMapTest do
     assert %{1 => 2} =
              AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
              |> AWLWWMap.read()
+             |> Enum.into(%{})
   end
 
   test "can join two adds" do
     add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
+
     add2 = AWLWWMap.add(2, 2, :foo_node, add1)
 
     assert %{1 => 2, 2 => 2} =
              AWLWWMap.join(add1, add2, [1, 2])
              |> AWLWWMap.read()
+             |> Enum.into(%{})
   end
 
   test "can remove elements" do
@@ -26,6 +29,7 @@ defmodule NewAWLWWMapTest do
     assert %{} =
              AWLWWMap.join(add1, remove1, [1])
              |> AWLWWMap.read()
+             |> Enum.into(%{})
   end
 
   test "can resolve conflicts" do
@@ -37,6 +41,7 @@ defmodule NewAWLWWMapTest do
     assert %{1 => 3} =
              AWLWWMap.join(add1, add2, [1])
              |> AWLWWMap.read()
+             |> Enum.into(%{})
   end
 
   test "can compute actual dots present" do
@@ -50,7 +55,7 @@ defmodule NewAWLWWMapTest do
 
   property "arbitrary add and remove sequence results in correct map" do
     operation_gen =
-      ExUnitProperties.gen all op <- StreamData.member_of([:add, :remove]),
+      ExUnitProperties.gen all op <- StreamData.member_of([:put, :delete]),
                                node_id <- term(),
                                key <- term(),
                                value <- term() do
@@ -61,23 +66,24 @@ defmodule NewAWLWWMapTest do
       actual_result =
         operations
         |> Enum.reduce(AWLWWMap.new(), fn
-          {:add, key, val, node_id}, map ->
+          {:put, key, val, node_id}, map ->
             AWLWWMap.add(key, val, node_id, map)
             |> AWLWWMap.join(map, [key])
 
-          {:remove, key, _val, node_id}, map ->
+          {:delete, key, _val, node_id}, map ->
             AWLWWMap.remove(key, node_id, map)
             |> AWLWWMap.join(map, [key])
         end)
         |> AWLWWMap.read()
+        |> Enum.into(%{})
 
       correct_result =
         operations
         |> Enum.reduce(%{}, fn
-          {:add, key, value, _node_id}, map ->
+          {:put, key, value, _node_id}, map ->
             Map.put(map, key, value)
 
-          {:remove, key, _value, _node_id}, map ->
+          {:delete, key, _value, _node_id}, map ->
             Map.delete(map, key)
         end)
 

@@ -1,6 +1,6 @@
 defmodule DeltaCrdt.AWLWWMap do
   defstruct dots: MapSet.new(),
-            value: %{}
+            value: MerkleMap.new()
 
   require Logger
 
@@ -118,15 +118,17 @@ defmodule DeltaCrdt.AWLWWMap do
 
   defp aw_set_add(i, el, {aw_set, c}) do
     d = Dots.next_dot(i, c)
-    {%{el => MapSet.new([d])}, MapSet.put(Map.get(aw_set, el, MapSet.new()), d)}
+
+    {MerkleMap.new(%{el => MapSet.new([d])}),
+     MapSet.put(MerkleMap.get(aw_set, el, MapSet.new()), d)}
   end
 
   defp apply_op(op, key, %{value: m, dots: c}) do
-    {val, c_p} = op.(Map.get(m, key, %{}), c)
+    {val, c_p} = op.(MerkleMap.get(m, key, MerkleMap.new()), c)
 
     %__MODULE__{
       dots: MapSet.new(c_p),
-      value: %{key => val}
+      value: MerkleMap.new(%{key => val})
     }
   end
 
@@ -134,19 +136,19 @@ defmodule DeltaCrdt.AWLWWMap do
     %{value: val} = state
 
     to_remove_dots =
-      case Map.fetch(val, key) do
+      case MerkleMap.fetch(val, key) do
         {:ok, value} -> Enum.flat_map(value, fn {_val, to_remove_dots} -> to_remove_dots end)
         :error -> []
       end
 
     %__MODULE__{
       dots: MapSet.new(to_remove_dots),
-      value: %{}
+      value: MerkleMap.new()
     }
   end
 
   def clear(_i, state) do
-    Map.put(state, :value, %{})
+    Map.put(state, :value, MerkleMap.new())
   end
 
   @doc false
@@ -161,12 +163,12 @@ defmodule DeltaCrdt.AWLWWMap do
   def join_or_maps(delta1, delta2, nested_joins, keys) do
     resolved_conflicts =
       Enum.flat_map(keys, fn key ->
-        sub_delta1 = Map.put(delta1, :value, Map.get(delta1.value, key, %{}))
+        sub_delta1 = Map.put(delta1, :value, MerkleMap.get(delta1.value, key, MerkleMap.new()))
 
-        sub_delta2 = Map.put(delta2, :value, Map.get(delta2.value, key, %{}))
+        sub_delta2 = Map.put(delta2, :value, MerkleMap.get(delta2.value, key, MerkleMap.new()))
 
         keys =
-          (Map.keys(sub_delta1.value) ++ Map.keys(sub_delta2.value))
+          (MerkleMap.keys(sub_delta1.value) ++ MerkleMap.keys(sub_delta2.value))
           |> Enum.uniq()
 
         [next_join | other_joins] = nested_joins
@@ -180,12 +182,12 @@ defmodule DeltaCrdt.AWLWWMap do
           [{key, new_sub}]
         end
       end)
-      |> Map.new()
+      |> MerkleMap.new()
 
     new_val =
-      Map.drop(delta1.value, keys)
-      |> Map.merge(Map.drop(delta2.value, keys))
-      |> Map.merge(resolved_conflicts)
+      MerkleMap.drop(delta1.value, keys)
+      |> MerkleMap.merge(MerkleMap.drop(delta2.value, keys))
+      |> MerkleMap.merge(resolved_conflicts)
 
     %__MODULE__{
       value: new_val
@@ -209,17 +211,25 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   def read(%{value: values}) do
-    Map.new(values, fn {key, values} ->
-      {{val, _ts}, _c} = Enum.max_by(values, fn {{_val, ts}, _c} -> ts end)
-      {key, val}
-    end)
+    MerkleMap.new(values, fn {key, values} -> {key, compute_value(values)} end)
+  end
+
+  defp compute_value(nil), do: nil
+
+  defp compute_value(values) do
+    {{val, _ts}, _c} = Enum.max_by(values, fn {{_val, ts}, _c} -> ts end)
+    val
   end
 
   def read(%{value: values}, keys) when is_list(keys) do
-    read(%{value: Map.take(values, keys)})
+    read(%{value: MerkleMap.take(values, keys)})
   end
 
   def read(crdt, key) do
     read(crdt, [key])
+  end
+
+  def get(%{value: values}, key) do
+    compute_value(MerkleMap.get(values, key))
   end
 end
