@@ -99,18 +99,71 @@ defmodule DeltaCrdt.CausalCrdt do
     state
   end
 
-  defp sync_state_to_neighbour(neighbour, _state) when neighbour == self(), do: nil
-
-  defp sync_state_to_neighbour(neighbour, state) do
-    send(neighbour, {:get_diff_keys, state.merkle_map, state.crdt_state.dots, self()})
-    {neighbour, state.sequence_number}
-  end
+  defmodule(Diff, do: defstruct(continuation: nil, dots: nil, from: nil, to: nil))
 
   defp sync_interval_or_state_to_all(state) do
+    {:continue, continuation} = MerkleMap.prepare_partial_diff(state.merkle_map, 8)
+
+    diff = %Diff{
+      continuation: continuation,
+      dots: state.crdt_state.dots,
+      from: self()
+    }
+
     Enum.filter(state.neighbours, &process_alive?/1)
-    |> Enum.each(fn n -> sync_state_to_neighbour(n, state) end)
+    |> Enum.reject(fn pid -> self() == pid end)
+    |> Enum.each(fn neighbour ->
+      send(neighbour, {:diff, %Diff{diff | to: neighbour}})
+    end)
 
     :ok
+  end
+
+  def handle_info({:diff, diff}, state) do
+    case MerkleMap.diff_keys(diff.continuation, state.merkle_map, 8) do
+      {:continue, continuation} ->
+        diff = %Diff{diff | continuation: continuation}
+        send_diff_continue(diff)
+
+      {:ok, []} ->
+        nil
+
+      {:ok, keys} ->
+        send_diff(diff, keys, state)
+    end
+
+    {:noreply, state}
+  end
+
+  defp send_diff_continue(diff) do
+    if self() == diff.to do
+      send(diff.from, {:diff, diff})
+    else
+      send(diff.to, {:diff, diff})
+    end
+  end
+
+  defp send_diff(diff, keys, state) do
+    if self() == diff.to do
+      send(diff.from, {:get_diff, diff, keys})
+    else
+      send(
+        diff.to,
+        {:diff,
+         %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
+         keys}
+      )
+    end
+  end
+
+  def handle_info({:get_diff, diff, keys}, state) do
+    send(
+      diff.to,
+      {:diff,
+       %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)}, keys}
+    )
+
+    {:noreply, state}
   end
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
@@ -119,25 +172,6 @@ defmodule DeltaCrdt.CausalCrdt do
     state = %{state | neighbours: MapSet.new(neighbours)}
 
     sync_interval_or_state_to_all(state)
-
-    {:noreply, state}
-  end
-
-  def handle_info({:get_diff_keys, merkle_map, dots, from}, state) do
-    case MerkleMap.diff_keys(state.merkle_map, merkle_map) do
-      [] ->
-        nil
-
-      diff_keys ->
-        send(from, {:diff_keys, diff_keys, dots, self()})
-    end
-
-    {:noreply, state}
-  end
-
-  def handle_info({:diff_keys, diff_keys, dots, from}, state) when is_list(diff_keys) do
-    diff = %{state.crdt_state | dots: dots, value: Map.take(state.crdt_state.value, diff_keys)}
-    send(from, {:diff, diff, diff_keys})
 
     {:noreply, state}
   end
