@@ -3,6 +3,10 @@ defmodule DeltaCrdt.CausalCrdt do
 
   require Logger
 
+  require BenchmarkHelper
+
+  BenchmarkHelper.inject_in_dev()
+
   @type delta :: {k :: integer(), delta :: any()}
   @type delta_interval :: {a :: integer(), b :: integer(), delta :: delta()}
 
