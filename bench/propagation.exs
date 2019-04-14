@@ -1,60 +1,122 @@
-defmodule UpdateListener do
+defmodule BenchRecorder do
   use GenServer
 
-  def wait_for_update(pid) do
-    GenServer.call(pid, :wait_for_update)
+  def subscribe_to(msg) do
+    GenServer.call(__MODULE__, {:set_pid_msg, self(), msg})
   end
 
-  def init(args) do
-    {:ok, {nil, nil}}
+  def start_link() do
+    GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
-  def handle_call(:wait_for_update, from, {nil, nil}) do
-    {:noreply, {from, nil}}
-  end
+  def init(nil), do: {:ok, {nil, nil}}
 
-  def handle_call(:wait_for_update, from, {nil, response}) do
-    {:reply, :ok, {nil, nil}}
-  end
-
-  def handle_info({:crdt_update, _msg}, {nil, nil}) do
-    {:noreply, {nil, :updated}}
-  end
-
-  def handle_info({:crdt_update, _msg}, {from, nil}) do
-    GenServer.reply(from, :ok)
+  def handle_info({:diffs, _diffs}, {nil, nil}) do
     {:noreply, {nil, nil}}
   end
+
+  def handle_info({:diffs, diffs}, {pid, msg}) do
+    if Enum.member?(diffs, msg) do
+      send(pid, msg)
+      {:noreply, {nil, nil}}
+    else
+      {:noreply, {pid, msg}}
+    end
+  end
+
+  def handle_call({:set_pid_msg, pid, msg}, _from, _) do
+    {:reply, :ok, {pid, msg}}
+  end
 end
 
-defmodule Counter do
-  use Agent
+BenchRecorder.start_link()
 
-  def start_link(initial_value) do
-    Agent.start_link(fn -> initial_value end, name: __MODULE__)
+prepare = fn number ->
+  BenchRecorder.subscribe_to({:add, number, number})
+
+  {:ok, c1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 5)
+
+  {:ok, c2} =
+    DeltaCrdt.start_link(DeltaCrdt.AWLWWMap,
+      on_diffs: fn diffs -> send(BenchRecorder, {:diffs, diffs}) end
+    )
+
+  DeltaCrdt.set_neighbours(c1, [c2])
+  DeltaCrdt.set_neighbours(c2, [c1])
+
+  Enum.each(1..number, fn x ->
+    DeltaCrdt.mutate(c1, :add, [x, x], 60_000)
+  end)
+
+  receive do
+    {:add, ^number, ^number} -> :ok
+  after
+    60_000 -> raise "waited for 60s"
   end
 
-  def next do
-    Agent.update(__MODULE__, &(&1 + 1))
-    Agent.get(__MODULE__, & &1)
-  end
+  :ok = GenServer.call(c1, :hibernate, 15_000)
+  :ok = GenServer.call(c2, :hibernate, 15_000)
+  :ok = GenServer.call(c1, :ping, 15_000)
+  :ok = GenServer.call(c2, :ping, 15_000)
+
+  {c1, c2}
 end
 
-{:ok, listener} = GenServer.start_link(UpdateListener, [])
+perform = fn {c1, c2}, op ->
+  range =
+    case op do
+      :add ->
+        100_000..100_010
 
-{:ok, crdt1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap)
-{:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, notify: {listener, :crdt_update})
+      :remove ->
+        1..10
+    end
 
-DeltaCrdt.set_neighbours(crdt1, [crdt2])
-DeltaCrdt.set_neighbours(crdt2, [crdt1])
+  Enum.each(range, fn x ->
+    case op do
+      :add ->
+        BenchRecorder.subscribe_to({:add, 100_010, 100_010})
+        DeltaCrdt.mutate(c1, :add, [x, x], 60_000)
 
-Counter.start_link(0)
+      :remove ->
+        BenchRecorder.subscribe_to({:remove, 10})
+        DeltaCrdt.mutate(c1, :remove, [x], 60_000)
+    end
+  end)
 
-Benchee.run(%{
-  "Add something" => fn ->
-    index = Counter.next()
-    IO.puts(index)
-    DeltaCrdt.mutate(crdt1, :add, [index, index])
-    UpdateListener.wait_for_update(listener) |> IO.inspect()
+  case op do
+    :add ->
+      receive do
+        {:add, 100_010, 100_010} -> :ok
+      after
+        60_000 -> raise "waited for 60s"
+      end
+
+    :remove ->
+      receive do
+        {:remove, 10} -> :ok
+      after
+        60_000 -> raise "waited for 60s"
+      end
   end
-})
+
+  Process.exit(c1, :normal)
+  Process.exit(c2, :normal)
+end
+
+Benchee.run(
+  %{
+    "add 10" => fn input -> perform.(input, :add) end,
+    "remove 10" => fn input -> perform.(input, :remove) end
+  },
+  before_each: fn input -> prepare.(input) end,
+  inputs: %{
+    # 10 => 10,
+    # 100 => 100,
+    # 1000 => 1000,
+    # 10_000 => 10_000,
+    20_000 => 20_000,
+    30_000 => 30_000
+  }
+  # formatters: [Benchee.Formatters.HTML, Benchee.Formatters.Console]
+)
