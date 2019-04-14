@@ -156,7 +156,7 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),
-    do: {:reply, {crdt_module, crdt_state}, state}
+    do: {:reply, Enum.into(state.merkle_map, %{}), state}
 
   def handle_call({:operation, operation}, _from, state) do
     {:reply, :ok, handle_operation(operation, state)}
