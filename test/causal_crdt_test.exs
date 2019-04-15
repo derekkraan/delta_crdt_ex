@@ -65,6 +65,18 @@ defmodule CausalCrdtTest do
     assert %{"Derek" => "Kraan", "Tonci" => "Galic"} == DeltaCrdt.read(c2)
   end
 
+  test "can sync to neighbours specified by name" do
+    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50, name: :neighbour_name_1)
+    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50, name: :neighbour_name_2)
+    DeltaCrdt.set_neighbours(c1, [:neighbour_name_2])
+    DeltaCrdt.set_neighbours(c2, [{:neighbour_name_1, node()}])
+    DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
+    DeltaCrdt.mutate(c2, :add, ["Tonci", "Galic"])
+    Process.sleep(100)
+    assert %{"Derek" => "Kraan", "Tonci" => "Galic"} = DeltaCrdt.read(c1)
+    assert %{"Derek" => "Kraan", "Tonci" => "Galic"} = DeltaCrdt.read(c2)
+  end
+
   test "storage backend can store and retrieve state" do
     DeltaCrdt.start_link(AWLWWMap, storage_module: MemoryStorage, name: :storage_test)
 

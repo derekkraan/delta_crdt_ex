@@ -103,7 +103,7 @@ defmodule DeltaCrdt.CausalCrdt do
     state
   end
 
-  defmodule(Diff, do: defstruct(continuation: nil, dots: nil, from: nil, to: nil))
+  defmodule(Diff, do: defstruct(continuation: nil, dots: nil, originator: nil, from: nil, to: nil))
 
   defp sync_interval_or_state_to_all(state) do
     {:continue, continuation} = MerkleMap.prepare_partial_diff(state.merkle_map, 8)
@@ -111,7 +111,8 @@ defmodule DeltaCrdt.CausalCrdt do
     diff = %Diff{
       continuation: continuation,
       dots: state.crdt_state.dots,
-      from: self()
+      from: self(),
+      originator: self()
     }
 
     Enum.filter(state.neighbours, &process_alive?/1)
@@ -140,21 +141,20 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp send_diff_continue(diff) do
-    if self() == diff.to do
-      send(diff.from, {:diff, diff})
-    else
-      send(diff.to, {:diff, diff})
-    end
+    new_diff = %Diff{diff | from: diff.to, to: diff.from}
+    send(new_diff.to, {:diff, new_diff})
   end
 
   defp send_diff(diff, keys, state) do
-    if self() == diff.to do
-      send(diff.from, {:get_diff, diff, keys})
+    new_diff = %Diff{diff | from: diff.to, to: diff.from}
+
+    if new_diff.originator == new_diff.to do
+      send(new_diff.from, {:get_diff, new_diff, keys})
     else
       send(
-        diff.to,
+        new_diff.to,
         {:diff,
-         %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
+         %{state.crdt_state | dots: new_diff.dots, value: Map.take(state.crdt_state.value, keys)},
          keys}
       )
     end
@@ -248,6 +248,12 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defp process_alive?({name, n}) do
     Enum.member?(Node.list(), n) && :rpc.call(n, Process, :whereis, [name]) != nil
+  end
+
+  defp process_alive?(name) when is_atom(name) do
+    with pid when is_pid(pid) <- Process.whereis(name) do
+      Process.alive?(pid)
+    end
   end
 
   defp process_alive?(pid) when node(pid) == node(), do: Process.alive?(pid)
