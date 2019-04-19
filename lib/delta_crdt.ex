@@ -28,12 +28,14 @@ defmodule DeltaCrdt do
   ```
   """
 
-  @default_sync_interval 50
+  @default_sync_interval 200
+  @default_max_sync_size 200
 
   @type diff :: {:add, key :: any(), value :: any()} | {:remove, key :: any()}
   @type crdt_option ::
           {:on_diffs, ([diff()] -> any())}
           | {:sync_interval, pos_integer()}
+          | {:max_sync_size, pos_integer()}
           | {:storage_module, DeltaCrdt.Storage.t()}
 
   @type crdt_options :: [crdt_option()]
@@ -53,6 +55,7 @@ defmodule DeltaCrdt do
     init_arg =
       Keyword.put(opts, :crdt_module, crdt_module)
       |> Keyword.put_new(:sync_interval, @default_sync_interval)
+      |> Keyword.put_new(:max_sync_size, @default_max_sync_size)
 
     GenServer.start_link(DeltaCrdt.CausalCrdt, init_arg, Keyword.take(opts, [:name]))
   end

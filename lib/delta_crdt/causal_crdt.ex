@@ -23,7 +23,8 @@ defmodule DeltaCrdt.CausalCrdt do
             neighbours: MapSet.new(),
             neighbour_monitors: %{},
             outstanding_syncs: %{},
-            sync_interval: nil
+            sync_interval: nil,
+            max_sync_size: nil
 
   defmodule(Diff, do: defstruct(continuation: nil, dots: nil, originator: nil, from: nil, to: nil))
 
@@ -54,6 +55,7 @@ defmodule DeltaCrdt.CausalCrdt do
       on_diffs: Keyword.get(opts, :on_diffs, fn _diffs -> nil end),
       storage_module: Keyword.get(opts, :storage_module),
       sync_interval: Keyword.get(opts, :sync_interval),
+      max_sync_size: Keyword.get(opts, :max_sync_size),
       crdt_module: crdt_module,
       crdt_state: crdt_module.new() |> crdt_module.compress_dots()
     }
@@ -74,14 +76,14 @@ defmodule DeltaCrdt.CausalCrdt do
 
     case MerkleMap.diff_keys(diff.continuation, state.merkle_map, 8) do
       {:continue, continuation} ->
-        diff = %Diff{diff | continuation: continuation}
-        send_diff_continue(diff)
+        %Diff{diff | continuation: MerkleMap.truncate_diff(continuation, state.max_sync_size)}
+        |> send_diff_continue()
 
       {:ok, []} ->
         ack_diff(diff)
 
       {:ok, keys} ->
-        send_diff(diff, keys, state)
+        send_diff(diff, Enum.take(keys, state.max_sync_size), state)
         ack_diff(diff)
     end
 
