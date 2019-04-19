@@ -21,7 +21,11 @@ defmodule DeltaCrdt.CausalCrdt do
             merkle_map: MerkleMap.new(),
             sequence_number: 0,
             neighbours: MapSet.new(),
+            neighbour_monitors: %{},
+            outstanding_syncs: %{},
             sync_interval: nil
+
+  defmodule(Diff, do: defstruct(continuation: nil, dots: nil, originator: nil, from: nil, to: nil))
 
   defmacrop strip_continue(tuple) do
     if System.otp_release() |> String.to_integer() > 20 do
@@ -59,6 +63,114 @@ defmodule DeltaCrdt.CausalCrdt do
 
   def handle_continue(:read_storage, state) do
     {:noreply, read_from_storage(state)}
+  end
+
+  def handle_info({:ack_diff, to}, state) do
+    {:noreply, %{state | outstanding_syncs: Map.delete(state.outstanding_syncs, to)}}
+  end
+
+  def handle_info({:diff, diff}, state) do
+    diff = reverse_diff(diff)
+
+    case MerkleMap.diff_keys(diff.continuation, state.merkle_map, 8) do
+      {:continue, continuation} ->
+        diff = %Diff{diff | continuation: continuation}
+        send_diff_continue(diff)
+
+      {:ok, []} ->
+        ack_diff(diff)
+
+      {:ok, keys} ->
+        send_diff(diff, keys, state)
+        ack_diff(diff)
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:get_diff, diff, keys}, state) do
+    send(
+      diff.to,
+      {:diff,
+       %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)}, keys}
+    )
+
+    ack_diff(diff)
+    {:noreply, state}
+  end
+
+  def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _object, _reason}, state) do
+    {neighbour, _ref} =
+      Enum.find(state.neighbour_monitors, fn
+        {_neighbour, ^ref} -> true
+        _ -> false
+      end)
+
+    new_neighbour_monitors = Map.delete(state.neighbour_monitors, neighbour)
+
+    new_outstanding_syncs = Map.delete(state.outstanding_syncs, neighbour)
+
+    new_state = %{
+      state
+      | neighbour_monitors: new_neighbour_monitors,
+        outstanding_syncs: new_outstanding_syncs
+    }
+
+    {:noreply, new_state}
+  end
+
+  def handle_info({:set_neighbours, neighbours}, state) do
+    state = %{state | neighbours: MapSet.new(neighbours)}
+
+    new_neighbour_monitors =
+      Enum.filter(state.neighbour_monitors, fn {neighbour, ref} ->
+        if MapSet.member?(state.neighbours, neighbour) do
+          true
+        else
+          Process.demonitor(ref)
+          false
+        end
+      end)
+      |> Map.new()
+
+    new_outstanding_syncs =
+      Enum.filter(state.outstanding_syncs, fn {neighbour, 1} ->
+        MapSet.member?(state.neighbours, neighbour)
+      end)
+      |> Map.new()
+
+    state = %{
+      state
+      | neighbour_monitors: new_neighbour_monitors,
+        outstanding_syncs: new_outstanding_syncs
+    }
+
+    {:noreply, sync_interval_or_state_to_all(state)}
+  end
+
+  def handle_info({:diff, diff, keys}, state) do
+    new_state = update_state_with_delta(state, diff, keys)
+    {:noreply, new_state}
+  end
+
+  def handle_info(:sync, state) do
+    state = sync_interval_or_state_to_all(state)
+
+    Process.send_after(self(), :sync, state.sync_interval)
+
+    {:noreply, state}
+  end
+
+  def handle_call(:read, _from, state), do: {:reply, Enum.into(state.merkle_map, %{}), state}
+
+  def handle_call({:operation, operation}, _from, state) do
+    {:reply, :ok, handle_operation(operation, state)}
+  end
+
+  def handle_cast({:operation, operation}, state) do
+    {:noreply, handle_operation(operation, state)}
   end
 
   # TODO this won't sync everything anymore, since syncing is now a 2-step process.
@@ -103,9 +215,8 @@ defmodule DeltaCrdt.CausalCrdt do
     state
   end
 
-  defmodule(Diff, do: defstruct(continuation: nil, dots: nil, originator: nil, from: nil, to: nil))
-
   defp sync_interval_or_state_to_all(state) do
+    state = monitor_neighbours(state)
     {:continue, continuation} = MerkleMap.prepare_partial_diff(state.merkle_map, 8)
 
     diff = %Diff{
@@ -115,93 +226,47 @@ defmodule DeltaCrdt.CausalCrdt do
       originator: self()
     }
 
-    Enum.filter(state.neighbours, &process_alive?/1)
-    |> Enum.reject(fn pid -> self() == pid end)
-    |> Enum.each(fn neighbour ->
-      send(neighbour, {:diff, %Diff{diff | to: neighbour}})
-    end)
+    new_outstanding_syncs =
+      Enum.filter(state.neighbours, &process_alive?/1)
+      |> Enum.reject(fn pid -> self() == pid end)
+      |> Enum.reduce(state.outstanding_syncs, fn neighbour, outstanding_syncs ->
+        Map.put_new_lazy(outstanding_syncs, neighbour, fn ->
+          send(neighbour, {:diff, %Diff{diff | to: neighbour}})
+          1
+        end)
+      end)
 
-    :ok
+    Map.put(state, :outstanding_syncs, new_outstanding_syncs)
   end
 
-  def handle_info({:diff, diff}, state) do
-    case MerkleMap.diff_keys(diff.continuation, state.merkle_map, 8) do
-      {:continue, continuation} ->
-        diff = %Diff{diff | continuation: continuation}
-        send_diff_continue(diff)
+  defp monitor_neighbours(state) do
+    new_neighbour_monitors =
+      Enum.reduce(state.neighbours, state.neighbour_monitors, fn neighbour, monitors ->
+        Map.put_new_lazy(monitors, neighbour, fn -> Process.monitor(neighbour) end)
+      end)
 
-      {:ok, []} ->
-        nil
+    Map.put(state, :neighbour_monitors, new_neighbour_monitors)
+  end
 
-      {:ok, keys} ->
-        send_diff(diff, keys, state)
-    end
-
-    {:noreply, state}
+  defp reverse_diff(diff) do
+    %Diff{diff | from: diff.to, to: diff.from}
   end
 
   defp send_diff_continue(diff) do
-    new_diff = %Diff{diff | from: diff.to, to: diff.from}
-    send(new_diff.to, {:diff, new_diff})
+    send(diff.to, {:diff, diff})
   end
 
   defp send_diff(diff, keys, state) do
-    new_diff = %Diff{diff | from: diff.to, to: diff.from}
-
-    if new_diff.originator == new_diff.to do
-      send(new_diff.from, {:get_diff, new_diff, keys})
+    if diff.originator == diff.to do
+      send(diff.from, {:get_diff, diff, keys})
     else
       send(
-        new_diff.to,
+        diff.to,
         {:diff,
-         %{state.crdt_state | dots: new_diff.dots, value: Map.take(state.crdt_state.value, keys)},
+         %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
          keys}
       )
     end
-  end
-
-  def handle_info({:get_diff, diff, keys}, state) do
-    send(
-      diff.to,
-      {:diff,
-       %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)}, keys}
-    )
-
-    {:noreply, state}
-  end
-
-  def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
-
-  def handle_info({:set_neighbours, neighbours}, state) do
-    state = %{state | neighbours: MapSet.new(neighbours)}
-
-    sync_interval_or_state_to_all(state)
-
-    {:noreply, state}
-  end
-
-  def handle_info({:diff, diff, keys}, state) do
-    new_state = update_state_with_delta(state, diff, keys)
-    {:noreply, new_state}
-  end
-
-  def handle_info(:sync, state) do
-    sync_interval_or_state_to_all(state)
-
-    Process.send_after(self(), :sync, state.sync_interval)
-
-    {:noreply, state}
-  end
-
-  def handle_call(:read, _from, %{crdt_module: crdt_module, crdt_state: crdt_state} = state),
-    do: {:reply, Enum.into(state.merkle_map, %{}), state}
-
-  def handle_call({:operation, operation}, _from, state) do
-    {:reply, :ok, handle_operation(operation, state)}
-  end
-
-  def handle_cast({:operation, operation}, state) do
-    {:noreply, handle_operation(operation, state)}
   end
 
   defp handle_operation({function, [key | rest_args]}, state) do
@@ -260,5 +325,13 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defp process_alive?(pid) do
     Enum.member?(Node.list(), node(pid)) && :rpc.call(node(pid), Process, :alive?, [pid])
+  end
+
+  defp ack_diff(%{originator: originator, from: originator, to: to}) do
+    send(originator, {:ack_diff, to})
+  end
+
+  defp ack_diff(%{originator: originator, from: from, to: originator}) do
+    send(originator, {:ack_diff, from})
   end
 end
