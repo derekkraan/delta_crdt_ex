@@ -1,11 +1,13 @@
 do_test = fn number ->
   bench_pid = self()
-  {:ok, c1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap)
+  {:ok, c1} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 20, max_sync_size: 500)
 
   {:ok, c2} =
     DeltaCrdt.start_link(DeltaCrdt.AWLWWMap,
       on_diffs: fn diffs -> send(bench_pid, {:diffs, diffs}) end,
-      subscribe_updates: {:diffs, bench_pid}
+      subscribe_updates: {:diffs, bench_pid},
+      sync_interval: 20,
+      max_sync_size: 500
     )
 
   DeltaCrdt.set_neighbours(c1, [c2])
