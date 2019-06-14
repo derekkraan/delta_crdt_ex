@@ -49,13 +49,25 @@ defmodule DeltaCrdt.CausalCrdt do
 
     crdt_module = Keyword.get(opts, :crdt_module)
 
+    max_sync_size =
+      case Keyword.get(opts, :max_sync_size) do
+        :infinite ->
+          :infinite
+
+        size when is_integer(size) and size > 0 ->
+          size
+
+        invalid_size ->
+          raise ArgumentError, "#{inspect(invalid_size)} is not a valid max_sync_size"
+      end
+
     initial_state = %__MODULE__{
       node_id: :rand.uniform(1_000_000_000),
       name: Keyword.get(opts, :name),
       on_diffs: Keyword.get(opts, :on_diffs, fn _diffs -> nil end),
       storage_module: Keyword.get(opts, :storage_module),
       sync_interval: Keyword.get(opts, :sync_interval),
-      max_sync_size: Keyword.get(opts, :max_sync_size),
+      max_sync_size: max_sync_size,
       crdt_module: crdt_module,
       crdt_state: crdt_module.new() |> crdt_module.compress_dots()
     }
@@ -78,14 +90,14 @@ defmodule DeltaCrdt.CausalCrdt do
 
     case MerkleMap.continue_partial_diff(diff.continuation, new_merkle_map, 8) do
       {:continue, continuation} ->
-        %Diff{diff | continuation: MerkleMap.truncate_diff(continuation, state.max_sync_size)}
+        %Diff{diff | continuation: truncate(continuation, state.max_sync_size)}
         |> send_diff_continue()
 
       {:ok, []} ->
         ack_diff(diff)
 
       {:ok, keys} ->
-        send_diff(diff, Enum.take(keys, state.max_sync_size), state)
+        send_diff(diff, truncate(keys, state.max_sync_size), state)
         ack_diff(diff)
     end
 
@@ -168,6 +180,16 @@ defmodule DeltaCrdt.CausalCrdt do
   # Figure out how to do this properly. Maybe with a `receive` block.
   def terminate(_reason, state) do
     sync_interval_or_state_to_all(state)
+  end
+
+  defp truncate(list, :infinite), do: list
+
+  defp truncate(list, size) when is_list(list) and is_integer(size) do
+    Enum.take(list, size)
+  end
+
+  defp truncate(diff, size) when is_integer(size) do
+    MerkleMap.truncate_diff(diff, size)
   end
 
   defp read_from_storage(%{storage_module: nil} = state) do
