@@ -46,7 +46,7 @@ The package can be installed by adding `delta_crdt` to your list of dependencies
 ```elixir
 def deps do
   [
-    {:delta_crdt, "~> 0.4.0"}
+    {:delta_crdt, "~> 0.5.0"}
   ]
 end
 ```
