@@ -49,13 +49,25 @@ defmodule DeltaCrdt.CausalCrdt do
 
     crdt_module = Keyword.get(opts, :crdt_module)
 
+    max_sync_size =
+      case Keyword.get(opts, :max_sync_size) do
+        :infinite ->
+          :infinite
+
+        size when is_integer(size) and size > 0 ->
+          size
+
+        invalid_size ->
+          raise ArgumentError, "#{inspect(invalid_size)} is not a valid max_sync_size"
+      end
+
     initial_state = %__MODULE__{
       node_id: :rand.uniform(1_000_000_000),
       name: Keyword.get(opts, :name),
       on_diffs: Keyword.get(opts, :on_diffs, fn _diffs -> nil end),
       storage_module: Keyword.get(opts, :storage_module),
       sync_interval: Keyword.get(opts, :sync_interval),
-      max_sync_size: Keyword.get(opts, :max_sync_size),
+      max_sync_size: max_sync_size,
       crdt_module: crdt_module,
       crdt_state: crdt_module.new() |> crdt_module.compress_dots()
     }
@@ -74,23 +86,27 @@ defmodule DeltaCrdt.CausalCrdt do
   def handle_info({:diff, diff}, state) do
     diff = reverse_diff(diff)
 
-    case MerkleMap.diff_keys(diff.continuation, state.merkle_map, 8) do
+    new_merkle_map = MerkleMap.update_hashes(state.merkle_map)
+
+    case MerkleMap.continue_partial_diff(diff.continuation, new_merkle_map, 8) do
       {:continue, continuation} ->
-        %Diff{diff | continuation: MerkleMap.truncate_diff(continuation, state.max_sync_size)}
+        %Diff{diff | continuation: truncate(continuation, state.max_sync_size)}
         |> send_diff_continue()
 
       {:ok, []} ->
         ack_diff(diff)
 
       {:ok, keys} ->
-        send_diff(diff, Enum.take(keys, state.max_sync_size), state)
+        send_diff(diff, truncate(keys, state.max_sync_size), state)
         ack_diff(diff)
     end
 
-    {:noreply, state}
+    {:noreply, Map.put(state, :merkle_map, new_merkle_map)}
   end
 
   def handle_info({:get_diff, diff, keys}, state) do
+    diff = reverse_diff(diff)
+
     send(
       diff.to,
       {:diff,
@@ -166,6 +182,16 @@ defmodule DeltaCrdt.CausalCrdt do
     sync_interval_or_state_to_all(state)
   end
 
+  defp truncate(list, :infinite), do: list
+
+  defp truncate(list, size) when is_list(list) and is_integer(size) do
+    Enum.take(list, size)
+  end
+
+  defp truncate(diff, size) when is_integer(size) do
+    MerkleMap.truncate_diff(diff, size)
+  end
+
   defp read_from_storage(%{storage_module: nil} = state) do
     state
   end
@@ -204,7 +230,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defp sync_interval_or_state_to_all(state) do
     state = monitor_neighbours(state)
-    {:continue, continuation} = MerkleMap.prepare_partial_diff(state.merkle_map, 8)
+    new_merkle_map = MerkleMap.update_hashes(state.merkle_map)
+    {:continue, continuation} = MerkleMap.prepare_partial_diff(new_merkle_map, 8)
 
     diff = %Diff{
       continuation: continuation,
@@ -224,6 +251,7 @@ defmodule DeltaCrdt.CausalCrdt do
       end)
 
     Map.put(state, :outstanding_syncs, new_outstanding_syncs)
+    |> Map.put(:merkle_map, new_merkle_map)
   end
 
   defp monitor_neighbours(state) do
@@ -245,7 +273,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defp send_diff(diff, keys, state) do
     if diff.originator == diff.to do
-      send(diff.from, {:get_diff, diff, keys})
+      send(diff.to, {:get_diff, diff, keys})
     else
       send(
         diff.to,
