@@ -74,7 +74,9 @@ defmodule DeltaCrdt.CausalCrdt do
   def handle_info({:diff, diff}, state) do
     diff = reverse_diff(diff)
 
-    case MerkleMap.diff_keys(diff.continuation, state.merkle_map, 8) do
+    new_merkle_map = MerkleMap.update_hashes(state.merkle_map)
+
+    case MerkleMap.continue_partial_diff(diff.continuation, new_merkle_map, 8) do
       {:continue, continuation} ->
         %Diff{diff | continuation: MerkleMap.truncate_diff(continuation, state.max_sync_size)}
         |> send_diff_continue()
@@ -87,10 +89,12 @@ defmodule DeltaCrdt.CausalCrdt do
         ack_diff(diff)
     end
 
-    {:noreply, state}
+    {:noreply, Map.put(state, :merkle_map, new_merkle_map)}
   end
 
   def handle_info({:get_diff, diff, keys}, state) do
+    diff = reverse_diff(diff)
+
     send(
       diff.to,
       {:diff,
@@ -204,7 +208,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defp sync_interval_or_state_to_all(state) do
     state = monitor_neighbours(state)
-    {:continue, continuation} = MerkleMap.prepare_partial_diff(state.merkle_map, 8)
+    new_merkle_map = MerkleMap.update_hashes(state.merkle_map)
+    {:continue, continuation} = MerkleMap.prepare_partial_diff(new_merkle_map, 8)
 
     diff = %Diff{
       continuation: continuation,
@@ -224,6 +229,7 @@ defmodule DeltaCrdt.CausalCrdt do
       end)
 
     Map.put(state, :outstanding_syncs, new_outstanding_syncs)
+    |> Map.put(:merkle_map, new_merkle_map)
   end
 
   defp monitor_neighbours(state) do
@@ -245,7 +251,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defp send_diff(diff, keys, state) do
     if diff.originator == diff.to do
-      send(diff.from, {:get_diff, diff, keys})
+      send(diff.to, {:get_diff, diff, keys})
     else
       send(
         diff.to,

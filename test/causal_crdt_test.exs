@@ -54,7 +54,7 @@ defmodule CausalCrdtTest do
     end
   end
 
-  test "synchronization happens TO neighbours" do
+  test "synchronization is directional, diffs are sent TO neighbours" do
     {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
     {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
     DeltaCrdt.set_neighbours(c1, [c2])
