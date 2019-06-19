@@ -83,6 +83,11 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, %{state | outstanding_syncs: Map.delete(state.outstanding_syncs, to)}}
   end
 
+  def handle_info({:diff, diff, keys}, state) do
+    new_state = update_state_with_delta(state, diff, keys)
+    {:noreply, new_state}
+  end
+
   def handle_info({:diff, diff}, state) do
     diff = reverse_diff(diff)
 
@@ -151,11 +156,6 @@ defmodule DeltaCrdt.CausalCrdt do
     state = %{state | outstanding_syncs: new_outstanding_syncs}
 
     {:noreply, sync_interval_or_state_to_all(state)}
-  end
-
-  def handle_info({:diff, diff, keys}, state) do
-    new_state = update_state_with_delta(state, diff, keys)
-    {:noreply, new_state}
   end
 
   def handle_info(:sync, state) do
@@ -308,11 +308,13 @@ defmodule DeltaCrdt.CausalCrdt do
     new_crdt_state = state.crdt_module.join(state.crdt_state, delta, keys)
     diffs = diff(state, Map.put(state, :crdt_state, new_crdt_state), keys)
 
-    new_merkle_map =
-      Enum.reduce(diffs, state.merkle_map, fn
-        {:add, key, value}, mm -> MerkleMap.put(mm, key, value)
-        {:remove, key}, mm -> MerkleMap.delete(mm, key)
+    {new_merkle_map, count} =
+      Enum.reduce(diffs, {state.merkle_map, 0}, fn
+        {:add, key, value}, {mm, count} -> {MerkleMap.put(mm, key, value), count + 1}
+        {:remove, key}, {mm, count} -> {MerkleMap.delete(mm, key), count + 1}
       end)
+
+    :telemetry.execute([:delta_crdt, :sync, :done], %{keys_changed: count}, %{name: state.name})
 
     case diffs do
       [] -> nil
