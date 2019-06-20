@@ -13,6 +13,8 @@ The following papers have used to implement this library:
 - [`Delta State Replicated Data Types – Almeida et al. 2016`](https://arxiv.org/pdf/1603.01529.pdf)
 - [`Efficient Synchronization of State-based CRDTs – Enes et al. 2018`](https://arxiv.org/pdf/1803.02750.pdf)
 
+DeltaCrdt also depends on [`MerkleMap`](https://github.com/derekkraan/merkle_map), which is used to determine which keys need to be synced between nodes.
+
 ## Usage
 
 Documentation can be found on [hexdocs.pm](https://hexdocs.pm/delta_crdt).
@@ -38,6 +40,10 @@ DeltaCrdt.mutate(crdt1, :add, ["CRDT", "is magic!"])
 DeltaCrdt.read(crdt2)
 %{"CRDT" => "is magic!"}
 ```
+
+## Telemetry metrics
+
+DeltaCrdt publishes the metric `[:delta_crdt, :sync, :done]`.
 
 ## Installation
 
