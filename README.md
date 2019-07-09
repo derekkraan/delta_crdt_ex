@@ -6,7 +6,7 @@ DeltaCrdt implements a key/value store using concepts from Delta CRDTs, and reli
 
 There is a (slightly out of date) [introductory blog post](https://medium.com/@derek.kraan2/dc838c383ad5) and the (very much up to date) official documentation on [hexdocs.pm](https://hexdocs.pm/delta_crdt) is also very good.
 
-The following papers have used to implement this library:
+The following papers have been used to implement this library:
 - [`Delta State Replicated Data Types – Almeida et al. 2016`](https://arxiv.org/pdf/1603.01529.pdf)
 - [`Efficient Synchronization of State-based CRDTs – Enes et al. 2018`](https://arxiv.org/pdf/1803.02750.pdf)
 
