@@ -2,18 +2,13 @@
 
 [![Hex pm](http://img.shields.io/hexpm/v/delta_crdt.svg?style=flat)](https://hex.pm/packages/delta_crdt) [![CircleCI badge](https://circleci.com/gh/derekkraan/delta_crdt_ex.png?circle-token=:circle-token)](https://circleci.com/gh/derekkraan/delta_crdt_ex)
 
-DeltaCrdt implements Delta CRDTs in Elixir. There is an [introductory blog post](https://medium.com/@derek.kraan2/dc838c383ad5) and the official documentation on [hexdocs.pm](https://hexdocs.pm/delta_crdt) is also very good.
+DeltaCrdt implements a key/value store using concepts from Delta CRDTs, and relies on [`MerkleMap`](https://github.com/derekkraan/merkle_map) for efficient synchronization.
 
-CRDTs currently offered include:
-- Add Wins Last Write Wins Map
-
-Please open an issue or a pull request if you'd like to see any additional Delta CRDTs included.
+There is a (slightly out of date) [introductory blog post](https://medium.com/@derek.kraan2/dc838c383ad5) and the (very much up to date) official documentation on [hexdocs.pm](https://hexdocs.pm/delta_crdt) is also very good.
 
 The following papers have used to implement this library:
 - [`Delta State Replicated Data Types – Almeida et al. 2016`](https://arxiv.org/pdf/1603.01529.pdf)
 - [`Efficient Synchronization of State-based CRDTs – Enes et al. 2018`](https://arxiv.org/pdf/1803.02750.pdf)
-
-DeltaCrdt also depends on [`MerkleMap`](https://github.com/derekkraan/merkle_map), which is used to determine which keys need to be synced between nodes.
 
 ## Usage
 
