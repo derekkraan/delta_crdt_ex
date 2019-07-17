@@ -166,7 +166,9 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, state}
   end
 
-  def handle_call(:read, _from, state), do: {:reply, Enum.into(state.merkle_map, %{}), state}
+  def handle_call(:read, _from, state) do
+    {:reply, state.crdt_module.read(state.crdt_state), state}
+  end
 
   def handle_call({:operation, operation}, _from, state) do
     {:reply, :ok, handle_operation(operation, state)}
@@ -292,11 +294,8 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp diff(old_state, new_state, keys) do
-    old = old_state.crdt_module.read(old_state.crdt_state, keys)
-    new = old_state.crdt_module.read(new_state.crdt_state, keys)
-
     Enum.flat_map(keys, fn key ->
-      case {Map.get(old, key), Map.get(new, key)} do
+      case {Map.get(old_state.crdt_state.value, key), Map.get(new_state.crdt_state.value, key)} do
         {old, old} -> []
         {_old, nil} -> [{:remove, key}]
         {_old, new} -> [{:add, key, new}]
@@ -304,9 +303,37 @@ defmodule DeltaCrdt.CausalCrdt do
     end)
   end
 
+  defp diffs_keys(diffs) do
+    Enum.map(diffs, fn
+      {:add, key, _val} -> key
+      {:remove, key} -> key
+    end)
+  end
+
+  defp diffs_to_callback(_old_state, _new_state, []), do: nil
+
+  defp diffs_to_callback(old_state, new_state, keys) do
+    old = new_state.crdt_module.read(old_state.crdt_state, keys)
+    new = new_state.crdt_module.read(new_state.crdt_state, keys)
+
+    diffs =
+      Enum.flat_map(keys, fn key ->
+        case {Map.get(old, key), Map.get(new, key)} do
+          {old, old} -> []
+          {_old, nil} -> [{:remove, key}]
+          {_old, new} -> [{:add, key, new}]
+        end
+      end)
+
+    new_state.on_diffs.(diffs)
+  end
+
   defp update_state_with_delta(state, delta, keys) do
     new_crdt_state = state.crdt_module.join(state.crdt_state, delta, keys)
-    diffs = diff(state, Map.put(state, :crdt_state, new_crdt_state), keys)
+
+    new_state = Map.put(state, :crdt_state, new_crdt_state)
+
+    diffs = diff(state, new_state, keys)
 
     {new_merkle_map, count} =
       Enum.reduce(diffs, {state.merkle_map, 0}, fn
@@ -318,13 +345,9 @@ defmodule DeltaCrdt.CausalCrdt do
       name: state.name
     })
 
-    case diffs do
-      [] -> nil
-      diffs -> state.on_diffs.(diffs)
-    end
+    diffs_to_callback(state, new_state, diffs_keys(diffs))
 
-    Map.put(state, :crdt_state, new_crdt_state)
-    |> Map.put(:merkle_map, new_merkle_map)
+    Map.put(new_state, :merkle_map, new_merkle_map)
     |> write_to_storage()
   end
 
