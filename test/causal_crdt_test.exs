@@ -150,4 +150,23 @@ defmodule CausalCrdtTest do
     assert Map.has_key?(DeltaCrdt.read(c2), "CRDTa")
     refute Map.has_key?(DeltaCrdt.read(c2), "CRDT1")
   end
+
+  test "syncing when values happen to be the same" do
+    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 20)
+    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 20)
+    DeltaCrdt.set_neighbours(c1, [c2])
+    DeltaCrdt.set_neighbours(c2, [c1])
+
+    DeltaCrdt.mutate(c1, :add, ["key", "value"])
+    DeltaCrdt.mutate(c2, :add, ["key", "value"])
+
+    Process.sleep(50)
+
+    DeltaCrdt.mutate(c1, :remove, ["key"])
+
+    Process.sleep(50)
+
+    refute Map.has_key?(DeltaCrdt.read(c1), "key")
+    refute Map.has_key?(DeltaCrdt.read(c2), "key")
+  end
 end
