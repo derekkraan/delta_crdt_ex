@@ -101,7 +101,7 @@ defmodule DeltaCrdt.AWLWWMap do
 
     add =
       fn aw_set, context ->
-        aw_set_add(i, {value, System.system_time(:nanosecond)}, {aw_set, context})
+        aw_set_add(i, {value, System.monotonic_time(:nanosecond)}, {aw_set, context})
       end
       |> apply_op(key, state)
 
