@@ -36,6 +36,8 @@ DeltaCrdt.read(crdt2)
 %{"CRDT" => "is magic!"}
 ```
 
+⚠️ **Use atom carefully** : Any key or value of atom type will be replicated across the nodes, which never be garbage collected.
+
 ## Telemetry metrics
 
 DeltaCrdt publishes the metric `[:delta_crdt, :sync, :done]`.
