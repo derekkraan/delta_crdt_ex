@@ -36,7 +36,7 @@ DeltaCrdt.read(crdt2)
 %{"CRDT" => "is magic!"}
 ```
 
-⚠️ **Use atom carefully** : Any key or value of atom type will be replicated across the nodes, which never be garbage collected.
+⚠️ **Use atoms carefully** : Any atom contained in a key or value will be replicated across all nodes, and will never be garbage collected by the BEAM.
 
 ## Telemetry metrics
 
