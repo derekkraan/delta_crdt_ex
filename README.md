@@ -4,7 +4,7 @@
 
 DeltaCrdt implements a key/value store using concepts from Delta CRDTs, and relies on [`MerkleMap`](https://github.com/derekkraan/merkle_map) for efficient synchronization.
 
-There is a (slightly out of date) [introductory blog post](https://medium.com/@derek.kraan2/dc838c383ad5) and the (very much up to date) official documentation on [hexdocs.pm](https://hexdocs.pm/delta_crdt) is also very good.
+There is a (slightly out of date) [introductory blog post](https://moosecode.nl/blog/how_deltacrdt_can_help_write_distributed_elixir_applications) and the (very much up to date) official documentation on [hexdocs.pm](https://hexdocs.pm/delta_crdt) is also very good.
 
 The following papers have been used to implement this library:
 - [`Delta State Replicated Data Types – Almeida et al. 2016`](https://arxiv.org/pdf/1603.01529.pdf)
