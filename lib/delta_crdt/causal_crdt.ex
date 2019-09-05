@@ -243,7 +243,7 @@ defmodule DeltaCrdt.CausalCrdt do
     }
 
     new_outstanding_syncs =
-      Enum.filter(state.neighbours, &process_alive?/1)
+      Enum.map(state.neighbour_monitors, fn {neighbour, _monitor} -> neighbour end)
       |> Enum.reject(fn pid -> self() == pid end)
       |> Enum.reduce(state.outstanding_syncs, fn neighbour, outstanding_syncs ->
         Map.put_new_lazy(outstanding_syncs, neighbour, fn ->
