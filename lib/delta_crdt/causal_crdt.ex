@@ -361,24 +361,6 @@ defmodule DeltaCrdt.CausalCrdt do
     |> write_to_storage()
   end
 
-  defp process_alive?({name, n}) when n == node(), do: Process.whereis(name) != nil
-
-  defp process_alive?({name, n}) do
-    Enum.member?(Node.list(), n) && :rpc.call(n, Process, :whereis, [name]) != nil
-  end
-
-  defp process_alive?(name) when is_atom(name) do
-    with pid when is_pid(pid) <- Process.whereis(name) do
-      Process.alive?(pid)
-    end
-  end
-
-  defp process_alive?(pid) when node(pid) == node(), do: Process.alive?(pid)
-
-  defp process_alive?(pid) do
-    Enum.member?(Node.list(), node(pid)) && :rpc.call(node(pid), Process, :alive?, [pid])
-  end
-
   defp ack_diff(%{originator: originator, from: originator, to: to}) do
     send(originator, {:ack_diff, to})
   end
