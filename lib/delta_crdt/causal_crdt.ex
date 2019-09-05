@@ -153,7 +153,17 @@ defmodule DeltaCrdt.CausalCrdt do
       end)
       |> Map.new()
 
-    state = %{state | outstanding_syncs: new_outstanding_syncs}
+    new_neighbour_monitors =
+      Enum.filter(state.neighbour_monitors, fn {neighbour, _ref} ->
+        MapSet.member?(state.neighbours, neighbour)
+      end)
+      |> Map.new()
+
+    state = %{
+      state
+      | outstanding_syncs: new_outstanding_syncs,
+        neighbour_monitors: new_neighbour_monitors
+    }
 
     {:noreply, sync_interval_or_state_to_all(state)}
   end
