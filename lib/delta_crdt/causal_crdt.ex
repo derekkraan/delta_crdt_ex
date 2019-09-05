@@ -257,10 +257,20 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Enum.reject(fn pid -> self() == pid end)
       |> Enum.reduce(state.outstanding_syncs, fn neighbour, outstanding_syncs ->
         Map.put_new_lazy(outstanding_syncs, neighbour, fn ->
-          send(neighbour, {:diff, %Diff{diff | to: neighbour}})
-          1
+          try do
+            send(neighbour, {:diff, %Diff{diff | to: neighbour}})
+            1
+          rescue
+            _ in ArgumentError ->
+              # This happens when we attempt to sync with a neighbour that is dead.
+              # This can happen, and is not a big deal, since syncing is idempotent.
+              Logger.debug("tried to sync with a dead neighbour, ignore the error and move on")
+              0
+          end
         end)
       end)
+      |> Enum.filter(&match?({_, 0}, &1))
+      |> Map.new()
 
     Map.put(state, :outstanding_syncs, new_outstanding_syncs)
     |> Map.put(:merkle_map, new_merkle_map)
