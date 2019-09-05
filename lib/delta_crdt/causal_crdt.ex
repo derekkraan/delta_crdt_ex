@@ -258,8 +258,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defp monitor_neighbours(state) do
     new_neighbour_monitors =
-      Enum.filter(state.neighbours, &process_alive?/1)
-      |> Enum.reduce(state.neighbour_monitors, fn neighbour, monitors ->
+      Enum.reduce(state.neighbours, state.neighbour_monitors, fn neighbour, monitors ->
         Map.put_new_lazy(monitors, neighbour, fn -> Process.monitor(neighbour) end)
       end)
 
