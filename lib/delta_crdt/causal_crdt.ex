@@ -264,7 +264,10 @@ defmodule DeltaCrdt.CausalCrdt do
             _ in ArgumentError ->
               # This happens when we attempt to sync with a neighbour that is dead.
               # This can happen, and is not a big deal, since syncing is idempotent.
-              Logger.debug("tried to sync with a dead neighbour, ignore the error and move on")
+              Logger.debug(
+                "tried to sync with a dead neighbour: #{inspect(neighbour)}, ignore the error and move on"
+              )
+
               0
           end
         end)
@@ -279,8 +282,24 @@ defmodule DeltaCrdt.CausalCrdt do
   defp monitor_neighbours(state) do
     new_neighbour_monitors =
       Enum.reduce(state.neighbours, state.neighbour_monitors, fn neighbour, monitors ->
-        Map.put_new_lazy(monitors, neighbour, fn -> Process.monitor(neighbour) end)
+        Map.put_new_lazy(monitors, neighbour, fn ->
+          try do
+            Process.monitor(neighbour)
+          rescue
+            _ in ArgumentError ->
+              # This happens can happen when we attempt to monitor a that is dead.
+              # This can happen, and is not a big deal, since we'll re-add the monitor later
+              # to get notified when the neighbour comes back online.
+              Logger.debug(
+                "tried to monitor a dead neighbour: #{inspect(neighbour)}, ignore the error and move on"
+              )
+
+              :error
+          end
+        end)
       end)
+      |> Enum.reject(&match?({_, :error}, &1))
+      |> Map.new()
 
     Map.put(state, :neighbour_monitors, new_neighbour_monitors)
   end
