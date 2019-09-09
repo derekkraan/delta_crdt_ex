@@ -145,23 +145,32 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_info({:set_neighbours, neighbours}, state) do
-    state = %{state | neighbours: MapSet.new(neighbours)}
+    new_neighbours = MapSet.new(neighbours)
+    ex_neighbours = MapSet.difference(state.neighbours, new_neighbours)
+
+    for n <- ex_neighbours do
+      case Map.get(state.neighbour_monitors, n) do
+        ref when is_reference(ref) -> Process.demonitor(ref, [:flush])
+        _ -> nil
+      end
+    end
 
     new_outstanding_syncs =
       Enum.filter(state.outstanding_syncs, fn {neighbour, 1} ->
-        MapSet.member?(state.neighbours, neighbour)
+        MapSet.member?(new_neighbours, neighbour)
       end)
       |> Map.new()
 
     new_neighbour_monitors =
       Enum.filter(state.neighbour_monitors, fn {neighbour, _ref} ->
-        MapSet.member?(state.neighbours, neighbour)
+        MapSet.member?(new_neighbours, neighbour)
       end)
       |> Map.new()
 
     state = %{
       state
-      | outstanding_syncs: new_outstanding_syncs,
+      | neighbours: new_neighbours,
+        outstanding_syncs: new_outstanding_syncs,
         neighbour_monitors: new_neighbour_monitors
     }
 
