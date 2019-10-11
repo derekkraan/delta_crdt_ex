@@ -64,7 +64,7 @@ defmodule DeltaCrdt.CausalCrdt do
     initial_state = %__MODULE__{
       node_id: :rand.uniform(1_000_000_000),
       name: Keyword.get(opts, :name),
-      on_diffs: Keyword.get(opts, :on_diffs, fn _diffs -> nil end),
+      on_diffs: Keyword.get(opts, :on_diffs),
       storage_module: Keyword.get(opts, :storage_module),
       sync_interval: Keyword.get(opts, :sync_interval),
       max_sync_size: max_sync_size,
@@ -373,7 +373,10 @@ defmodule DeltaCrdt.CausalCrdt do
         end
       end)
 
-    new_state.on_diffs.(diffs)
+    case new_state.on_diffs do
+      {module, function, args} -> apply(module, function, args ++ [diffs])
+      nil -> nil
+    end
   end
 
   defp update_state_with_delta(state, delta, keys) do

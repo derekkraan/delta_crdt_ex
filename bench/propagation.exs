@@ -11,6 +11,10 @@ defmodule BenchRecorder do
 
   def init(nil), do: {:ok, {nil, nil}}
 
+  def on_diffs(diffs) do
+    send(__MODULE__, {:diffs, diffs})
+  end
+
   def handle_info({:diffs, _diffs}, {nil, nil}) do
     {:noreply, {nil, nil}}
   end
@@ -38,7 +42,7 @@ prepare = fn number ->
 
   {:ok, c2} =
     DeltaCrdt.start_link(DeltaCrdt.AWLWWMap,
-      on_diffs: fn diffs -> send(BenchRecorder, {:diffs, diffs}) end
+      on_diffs: {BenchRecorder, :on_diffs, []}
     )
 
   DeltaCrdt.set_neighbours(c1, [c2])

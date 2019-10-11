@@ -4,13 +4,17 @@ defmodule DeltaSubscriberTest do
 
   alias DeltaCrdt.AWLWWMap
 
+  def on_diffs(test_pid, diffs) do
+    send(test_pid, {:diff, diffs})
+  end
+
   test "receives deltas updates" do
     test_pid = self()
 
     {:ok, c1} =
       DeltaCrdt.start_link(AWLWWMap,
         sync_interval: 50,
-        on_diffs: fn diffs -> send(test_pid, {:diff, diffs}) end
+        on_diffs: {DeltaSubscriberTest, :on_diffs, [test_pid]}
       )
 
     :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
@@ -34,9 +38,7 @@ defmodule DeltaSubscriberTest do
     {:ok, c2} =
       DeltaCrdt.start_link(AWLWWMap,
         sync_interval: 50,
-        on_diffs: fn diffs ->
-          send(test_pid, {:diff, diffs})
-        end
+        on_diffs: {DeltaSubscriberTest, :on_diffs, [test_pid]}
       )
 
     :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
@@ -57,22 +59,24 @@ defmodule DeltaSubscriberTest do
 
   property "add and remove operations result in correct map" do
     op =
-      ExUnitProperties.gen all op <- StreamData.member_of([:add, :remove]),
-                               key <- term(),
-                               value <- term() do
+      ExUnitProperties.gen all(
+                             op <- StreamData.member_of([:add, :remove]),
+                             key <- term(),
+                             value <- term()
+                           ) do
         case op do
           :add -> {:add, key, value}
           :remove -> {:remove, key}
         end
       end
 
-    check all ops <- list_of(op) do
+    check all(ops <- list_of(op)) do
       test_pid = self()
 
       {:ok, c1} =
         DeltaCrdt.start_link(AWLWWMap,
           sync_interval: 50,
-          on_diffs: fn diffs -> send(test_pid, {:diff, diffs}) end
+          on_diffs: {DeltaSubscriberTest, :on_diffs, [test_pid]}
         )
 
       Enum.each(ops, fn
