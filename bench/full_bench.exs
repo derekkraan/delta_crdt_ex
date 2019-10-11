@@ -4,7 +4,7 @@ do_test = fn number ->
 
   {:ok, c2} =
     DeltaCrdt.start_link(DeltaCrdt.AWLWWMap,
-      on_diffs: fn diffs -> send(bench_pid, {:diffs, diffs}) end,
+      on_diffs: {Kernel, :send, [bench_pid]},
       subscribe_updates: {:diffs, bench_pid},
       sync_interval: 20,
       max_sync_size: 500
@@ -19,7 +19,7 @@ do_test = fn number ->
 
   wait_loop = fn next_loop ->
     receive do
-      {:diffs, diffs} ->
+      diffs when is_list(diffs) ->
         # Enum.each(diffs, fn diff -> IO.inspect(diff) end)
 
         Enum.any?(diffs, fn
