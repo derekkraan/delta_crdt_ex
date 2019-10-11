@@ -374,6 +374,7 @@ defmodule DeltaCrdt.CausalCrdt do
       end)
 
     case new_state.on_diffs do
+      function when is_function(function) -> function.(diffs)
       {module, function, args} -> apply(module, function, args ++ [diffs])
       nil -> nil
     end
