@@ -33,7 +33,7 @@ defmodule DeltaCrdt do
 
   @type diff :: {:add, key :: any(), value :: any()} | {:remove, key :: any()}
   @type crdt_option ::
-          {:on_diffs, {module(), function(), [any()]}}
+          {:on_diffs, ([diff()] -> any()) | {module(), function(), [any()]}}
           | {:sync_interval, pos_integer()}
           | {:max_sync_size, pos_integer() | :infinite}
           | {:storage_module, DeltaCrdt.Storage.t()}

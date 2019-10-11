@@ -8,13 +8,32 @@ defmodule DeltaSubscriberTest do
     send(test_pid, {:diff, diffs})
   end
 
-  test "receives deltas updates" do
+  test "receives deltas updates with MFA" do
     test_pid = self()
 
     {:ok, c1} =
       DeltaCrdt.start_link(AWLWWMap,
         sync_interval: 50,
         on_diffs: {DeltaSubscriberTest, :on_diffs, [test_pid]}
+      )
+
+    :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
+    assert_received({:diff, [{:add, "Derek", "Kraan"}]})
+
+    :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
+    refute_received({:diff, [{:add, "Derek", "Kraan"}]})
+
+    :ok = DeltaCrdt.mutate(c1, :add, ["Derek", nil])
+    assert_received({:diff, [{:remove, "Derek"}]})
+  end
+
+  test "receives deltas updates with function" do
+    test_pid = self()
+
+    {:ok, c1} =
+      DeltaCrdt.start_link(AWLWWMap,
+        sync_interval: 50,
+        on_diffs: fn diffs -> send(test_pid, {:diff, diffs}) end
       )
 
     :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
