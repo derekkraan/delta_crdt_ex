@@ -73,15 +73,15 @@ defmodule CausalCrdtTest do
     DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
     DeltaCrdt.mutate(c2, :add, ["Tonci", "Galic"])
     Process.sleep(100)
-    assert %{"Derek" => "Kraan", "Tonci" => "Galic"} = DeltaCrdt.read(c1)
-    assert %{"Derek" => "Kraan", "Tonci" => "Galic"} = DeltaCrdt.read(c2)
+    assert %{"Derek" => "Kraan", "Tonci" => "Galic"} == DeltaCrdt.read(c1)
+    assert %{"Derek" => "Kraan", "Tonci" => "Galic"} == DeltaCrdt.read(c2)
   end
 
   test "storage backend can store and retrieve state" do
     DeltaCrdt.start_link(AWLWWMap, storage_module: MemoryStorage, name: :storage_test)
 
     DeltaCrdt.mutate(:storage_test, :add, ["Derek", "Kraan"])
-    assert %{"Derek" => "Kraan"} = DeltaCrdt.read(:storage_test)
+    assert %{"Derek" => "Kraan"} == DeltaCrdt.read(:storage_test)
   end
 
   test "storage backend is used to rehydrate state after a crash" do
@@ -98,7 +98,7 @@ defmodule CausalCrdtTest do
 
     {:ok, _} = DeltaCrdt.start_link(AWLWWMap, storage_module: MemoryStorage, name: :storage_test)
 
-    assert %{"Derek" => "Kraan"} = DeltaCrdt.read(:storage_test)
+    assert %{"Derek" => "Kraan"} == DeltaCrdt.read(:storage_test)
   end
 
   test "syncs after adding neighbour" do
@@ -108,7 +108,8 @@ defmodule CausalCrdtTest do
     DeltaCrdt.mutate(c2, :add, ["CRDT2", "also here"])
     DeltaCrdt.set_neighbours(c1, [c2])
     Process.sleep(100)
-    assert %{} = DeltaCrdt.read(c1)
+    assert %{"CRDT1" => "represent"} == DeltaCrdt.read(c1)
+    assert %{"CRDT1" => "represent", "CRDT2" => "also here"} == DeltaCrdt.read(c2)
   end
 
   test "can sync after network partition" do
@@ -124,7 +125,7 @@ defmodule CausalCrdtTest do
     DeltaCrdt.mutate(c2, :add, ["CRDT2", "also here"])
 
     Process.sleep(200)
-    assert %{"CRDT1" => "represent", "CRDT2" => "also here"} = DeltaCrdt.read(c1)
+    assert %{"CRDT1" => "represent", "CRDT2" => "also here"} == DeltaCrdt.read(c1)
 
     # uncouple them
     DeltaCrdt.set_neighbours(c1, [])
@@ -168,5 +169,49 @@ defmodule CausalCrdtTest do
 
     refute Map.has_key?(DeltaCrdt.read(c1), "key")
     refute Map.has_key?(DeltaCrdt.read(c2), "key")
+  end
+
+  @tag :slow
+  @tag timeout: 600_000
+  test "adding a lot of entries" do
+    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 500)
+    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 500)
+    DeltaCrdt.set_neighbours(c1, [c2])
+    DeltaCrdt.set_neighbours(c2, [c1])
+
+    for key <- 1..100_000, do: DeltaCrdt.mutate(c1, :add, [key, %{}], 60_000)
+
+    Process.sleep(60_000)
+
+    assert map_size(DeltaCrdt.read(c1)) == 100_000
+    assert map_size(DeltaCrdt.read(c2)) == 100_000
+  end
+
+  test "adding a neighbour with own entries to existing pair" do
+    {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 20)
+    {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 20)
+    DeltaCrdt.set_neighbours(c1, [c2])
+    DeltaCrdt.set_neighbours(c2, [c1])
+
+    DeltaCrdt.mutate(c1, :add, ["step1", 1])
+
+    Process.sleep(50)
+
+    # Create a new neighbour that already has data:
+    {:ok, c3} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 20)
+    DeltaCrdt.mutate(c3, :add, ["step2", 2])
+
+    Process.sleep(50)
+
+    # Connect them
+    DeltaCrdt.set_neighbours(c3, [c1])
+    DeltaCrdt.set_neighbours(c1, [c3])
+
+    Process.sleep(50)
+
+    expected = %{"step1" => 1, "step2" => 2}
+
+    assert {DeltaCrdt.read(c1), DeltaCrdt.read(c2), DeltaCrdt.read(c3)} ==
+             {expected, expected, expected}
   end
 end
