@@ -5,6 +5,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
   require BenchmarkHelper
 
+  alias MerkleMap.MerkleTree
+
   BenchmarkHelper.inject_in_dev()
 
   @type delta :: {k :: integer(), delta :: any()}
@@ -18,7 +20,7 @@ defmodule DeltaCrdt.CausalCrdt do
             storage_module: nil,
             crdt_module: nil,
             crdt_state: nil,
-            merkle_map: MerkleMap.new(),
+            merkle_tree: MerkleTree.new(),
             sequence_number: 0,
             neighbours: MapSet.new(),
             neighbour_monitors: %{},
@@ -91,9 +93,9 @@ defmodule DeltaCrdt.CausalCrdt do
   def handle_info({:diff, diff}, state) do
     diff = reverse_diff(diff)
 
-    new_merkle_map = MerkleMap.update_hashes(state.merkle_map)
+    new_merkle_tree = MerkleTree.update_hashes(state.merkle_tree)
 
-    case MerkleMap.continue_partial_diff(diff.continuation, new_merkle_map, 8) do
+    case MerkleTree.continue_partial_diff(new_merkle_tree, diff.continuation, 8) do
       {:continue, continuation} ->
         %Diff{diff | continuation: truncate(continuation, state.max_sync_size)}
         |> send_diff_continue()
@@ -106,7 +108,7 @@ defmodule DeltaCrdt.CausalCrdt do
         ack_diff(diff)
     end
 
-    {:noreply, Map.put(state, :merkle_map, new_merkle_map)}
+    {:noreply, Map.put(state, :merkle_tree, new_merkle_tree)}
   end
 
   def handle_info({:get_diff, diff, keys}, state) do
@@ -210,7 +212,7 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp truncate(diff, size) when is_integer(size) do
-    MerkleMap.truncate_diff(diff, size)
+    MerkleTree.truncate_diff(diff, size)
   end
 
   defp read_from_storage(%{storage_module: nil} = state) do
@@ -222,10 +224,10 @@ defmodule DeltaCrdt.CausalCrdt do
       nil ->
         state
 
-      {node_id, sequence_number, crdt_state, merkle_map} ->
+      {node_id, sequence_number, crdt_state, merkle_tree} ->
         Map.put(state, :sequence_number, sequence_number)
         |> Map.put(:crdt_state, crdt_state)
-        |> Map.put(:merkle_map, merkle_map)
+        |> Map.put(:merkle_tree, merkle_tree)
         |> Map.put(:node_id, node_id)
         |> remove_crdt_state_keys()
     end
@@ -243,7 +245,7 @@ defmodule DeltaCrdt.CausalCrdt do
     :ok =
       state.storage_module.write(
         state.name,
-        {state.node_id, state.sequence_number, state.crdt_state, state.merkle_map}
+        {state.node_id, state.sequence_number, state.crdt_state, state.merkle_tree}
       )
 
     state
@@ -251,8 +253,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defp sync_interval_or_state_to_all(state) do
     state = monitor_neighbours(state)
-    new_merkle_map = MerkleMap.update_hashes(state.merkle_map)
-    {:continue, continuation} = MerkleMap.prepare_partial_diff(new_merkle_map, 8)
+    new_merkle_tree = MerkleTree.update_hashes(state.merkle_tree)
+    {:continue, continuation} = MerkleTree.prepare_partial_diff(new_merkle_tree, 8)
 
     diff = %Diff{
       continuation: continuation,
@@ -285,7 +287,7 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Map.new()
 
     Map.put(state, :outstanding_syncs, new_outstanding_syncs)
-    |> Map.put(:merkle_map, new_merkle_map)
+    |> Map.put(:merkle_tree, new_merkle_tree)
   end
 
   defp monitor_neighbours(state) do
@@ -387,10 +389,10 @@ defmodule DeltaCrdt.CausalCrdt do
 
     diffs = diff(state, new_state, keys)
 
-    {new_merkle_map, count} =
-      Enum.reduce(diffs, {state.merkle_map, 0}, fn
-        {:add, key, value}, {mm, count} -> {MerkleMap.put(mm, key, value), count + 1}
-        {:remove, key}, {mm, count} -> {MerkleMap.delete(mm, key), count + 1}
+    {new_merkle_tree, count} =
+      Enum.reduce(diffs, {state.merkle_tree, 0}, fn
+        {:add, key, value}, {tree, count} -> {MerkleTree.put(tree, key, value), count + 1}
+        {:remove, key}, {tree, count} -> {MerkleTree.delete(tree, key), count + 1}
       end)
 
     :telemetry.execute([:delta_crdt, :sync, :done], %{keys_updated_count: count}, %{
@@ -399,7 +401,7 @@ defmodule DeltaCrdt.CausalCrdt do
 
     diffs_to_callback(state, new_state, diffs_keys(diffs))
 
-    Map.put(new_state, :merkle_map, new_merkle_map)
+    Map.put(new_state, :merkle_tree, new_merkle_tree)
     |> write_to_storage()
   end
 
