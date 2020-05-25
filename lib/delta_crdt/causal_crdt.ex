@@ -92,7 +92,7 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, new_state}
   end
 
-  def handle_info({:retry_diff, n, {:diff, diff} = msg}, state) do
+  def handle_info({:retry_diff, n, diff}, state) do
     diff = reverse_diff(diff)
 
     new_merkle_tree = MerkleTree.update_hashes(state.merkle_tree)
@@ -130,7 +130,7 @@ defmodule DeltaCrdt.CausalCrdt do
         if n + 1 <= @attempts do
           Process.send_after(
             self(),
-            {:retry_diff, n + 1, msg},
+            {:retry_diff, n + 1, diff},
             div(state.sync_interval, @attempts)
           )
         end
@@ -139,22 +139,35 @@ defmodule DeltaCrdt.CausalCrdt do
     end
   end
 
-  def handle_info({:diff, _diff} = msg, state), do: handle_info({:retry_diff, 0, msg}, state)
+  def handle_info({:diff, diff}, state), do: handle_info({:retry_diff, 0, diff}, state)
 
-  def handle_info({:get_diff, diff, keys}, state) do
+  def handle_info({:retry_get_diff, n, diff, keys}, state) do
     diff = reverse_diff(diff)
 
-    if send_nosuspend(
-         diff.to,
-         {:diff,
-          %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
-          keys}
-       ) do
-      ack_diff(diff)
+    case send_nosuspend(
+           diff.to,
+           {:diff,
+            %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
+            keys}
+         ) do
+      true ->
+        ack_diff(diff)
+
+      false ->
+        if n + 1 <= @attempts do
+          Process.send_after(
+            self(),
+            {:retry_get_diff, n + 1, diff, keys},
+            div(state.sync_interval, @attempts)
+          )
+        end
     end
 
     {:noreply, state}
   end
+
+  def handle_info({:get_diff, diff, keys}, state),
+    do: handle_info({:retry_get_diff, 0, diff, keys}, state)
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
 
