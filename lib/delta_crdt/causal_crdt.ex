@@ -114,7 +114,7 @@ defmodule DeltaCrdt.CausalCrdt do
   def handle_info({:get_diff, diff, keys}, state) do
     diff = reverse_diff(diff)
 
-    send(
+    send_nosuspend(
       diff.to,
       {:diff,
        %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)}, keys}
@@ -269,7 +269,7 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Enum.reduce(state.outstanding_syncs, fn neighbour, outstanding_syncs ->
         Map.put_new_lazy(outstanding_syncs, neighbour, fn ->
           try do
-            send(neighbour, {:diff, %Diff{diff | to: neighbour}})
+            send_nosuspend(neighbour, {:diff, %Diff{diff | to: neighbour}})
             1
           rescue
             _ in ArgumentError ->
@@ -320,14 +320,14 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp send_diff_continue(diff) do
-    send(diff.to, {:diff, diff})
+    send_nosuspend(diff.to, {:diff, diff})
   end
 
   defp send_diff(diff, keys, state) do
     if diff.originator == diff.to do
-      send(diff.to, {:get_diff, diff, keys})
+      send_nosuspend(diff.to, {:get_diff, diff, keys})
     else
-      send(
+      send_nosuspend(
         diff.to,
         {:diff,
          %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
@@ -406,10 +406,14 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp ack_diff(%{originator: originator, from: originator, to: to}) do
-    send(originator, {:ack_diff, to})
+    send_nosuspend(originator, {:ack_diff, to})
   end
 
   defp ack_diff(%{originator: originator, from: from, to: originator}) do
-    send(originator, {:ack_diff, from})
+    send_nosuspend(originator, {:ack_diff, from})
+  end
+
+  defp send_nosuspend(dest, msg) do
+    Process.send(dest, msg, [:nosuspend])
   end
 end
