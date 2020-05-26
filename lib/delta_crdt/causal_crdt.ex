@@ -203,7 +203,7 @@ defmodule DeltaCrdt.CausalCrdt do
     end
 
     new_outstanding_syncs =
-      Enum.filter(state.outstanding_syncs, fn {neighbour, 1} ->
+      Enum.filter(state.outstanding_syncs, fn {neighbour, _} ->
         MapSet.member?(new_neighbours, neighbour)
       end)
       |> Map.new()
