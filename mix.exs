@@ -9,6 +9,7 @@ defmodule DeltaCrdt.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       package: package(),
+      source_url: "https://github.com/derekkraan/delta_crdt_ex",
       deps: deps()
     ]
   end
