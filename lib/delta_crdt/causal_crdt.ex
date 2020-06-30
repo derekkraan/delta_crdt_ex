@@ -5,6 +5,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
   require BenchmarkHelper
 
+  alias MerkleMap.MerkleTree
+
   BenchmarkHelper.inject_in_dev()
 
   @type delta :: {k :: integer(), delta :: any()}
@@ -12,13 +14,15 @@ defmodule DeltaCrdt.CausalCrdt do
 
   @moduledoc false
 
+  @attempts 3
+
   defstruct node_id: nil,
             name: nil,
             on_diffs: nil,
             storage_module: nil,
             crdt_module: nil,
             crdt_state: nil,
-            merkle_map: MerkleMap.new(),
+            merkle_tree: MerkleTree.new(),
             sequence_number: 0,
             neighbours: MapSet.new(),
             neighbour_monitors: %{},
@@ -88,39 +92,82 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, new_state}
   end
 
-  def handle_info({:diff, diff}, state) do
+  def handle_info({:retry_diff, n, diff}, state) do
     diff = reverse_diff(diff)
 
-    new_merkle_map = MerkleMap.update_hashes(state.merkle_map)
+    new_merkle_tree = MerkleTree.update_hashes(state.merkle_tree)
 
-    case MerkleMap.continue_partial_diff(diff.continuation, new_merkle_map, 8) do
-      {:continue, continuation} ->
-        %Diff{diff | continuation: truncate(continuation, state.max_sync_size)}
-        |> send_diff_continue()
+    sent? =
+      case MerkleTree.continue_partial_diff(new_merkle_tree, diff.continuation, 8) do
+        {:continue, continuation} ->
+          %Diff{diff | continuation: truncate(continuation, state.max_sync_size)}
+          |> send_diff_continue()
 
-      {:ok, []} ->
+        {:ok, []} ->
+          # If remote is busy sending ack, do nothing. It's not a big deal as
+          # the remote outstanding_syncs will keep a dangling entry which will
+          # be overridden at next sync interval.
+          ack_diff(diff)
+          true
+
+        {:ok, keys} ->
+          case send_diff(diff, truncate(keys, state.max_sync_size), state) do
+            true ->
+              # Same as above.
+              ack_diff(diff)
+              true
+
+            _ ->
+              false
+          end
+      end
+
+    case sent? do
+      true ->
+        {:noreply, Map.put(state, :merkle_tree, new_merkle_tree)}
+
+      false ->
+        if n + 1 <= @attempts do
+          Process.send_after(
+            self(),
+            {:retry_diff, n + 1, diff},
+            div(state.sync_interval, @attempts)
+          )
+        end
+
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:diff, diff}, state), do: handle_info({:retry_diff, 0, diff}, state)
+
+  def handle_info({:retry_get_diff, n, diff, keys}, state) do
+    diff = reverse_diff(diff)
+
+    case send_nosuspend(
+           diff.to,
+           {:diff,
+            %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
+            keys}
+         ) do
+      true ->
         ack_diff(diff)
 
-      {:ok, keys} ->
-        send_diff(diff, truncate(keys, state.max_sync_size), state)
-        ack_diff(diff)
+      false ->
+        if n + 1 <= @attempts do
+          Process.send_after(
+            self(),
+            {:retry_get_diff, n + 1, diff, keys},
+            div(state.sync_interval, @attempts)
+          )
+        end
     end
 
-    {:noreply, Map.put(state, :merkle_map, new_merkle_map)}
-  end
-
-  def handle_info({:get_diff, diff, keys}, state) do
-    diff = reverse_diff(diff)
-
-    send(
-      diff.to,
-      {:diff,
-       %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)}, keys}
-    )
-
-    ack_diff(diff)
     {:noreply, state}
   end
+
+  def handle_info({:get_diff, diff, keys}, state),
+    do: handle_info({:retry_get_diff, 0, diff, keys}, state)
 
   def handle_info({:EXIT, _pid, :normal}, state), do: {:noreply, state}
 
@@ -156,7 +203,7 @@ defmodule DeltaCrdt.CausalCrdt do
     end
 
     new_outstanding_syncs =
-      Enum.filter(state.outstanding_syncs, fn {neighbour, 1} ->
+      Enum.filter(state.outstanding_syncs, fn {neighbour, _} ->
         MapSet.member?(new_neighbours, neighbour)
       end)
       |> Map.new()
@@ -210,7 +257,7 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp truncate(diff, size) when is_integer(size) do
-    MerkleMap.truncate_diff(diff, size)
+    MerkleTree.truncate_diff(diff, size)
   end
 
   defp read_from_storage(%{storage_module: nil} = state) do
@@ -222,10 +269,10 @@ defmodule DeltaCrdt.CausalCrdt do
       nil ->
         state
 
-      {node_id, sequence_number, crdt_state, merkle_map} ->
+      {node_id, sequence_number, crdt_state, merkle_tree} ->
         Map.put(state, :sequence_number, sequence_number)
         |> Map.put(:crdt_state, crdt_state)
-        |> Map.put(:merkle_map, merkle_map)
+        |> Map.put(:merkle_tree, merkle_tree)
         |> Map.put(:node_id, node_id)
         |> remove_crdt_state_keys()
     end
@@ -243,7 +290,7 @@ defmodule DeltaCrdt.CausalCrdt do
     :ok =
       state.storage_module.write(
         state.name,
-        {state.node_id, state.sequence_number, state.crdt_state, state.merkle_map}
+        {state.node_id, state.sequence_number, state.crdt_state, state.merkle_tree}
       )
 
     state
@@ -251,8 +298,8 @@ defmodule DeltaCrdt.CausalCrdt do
 
   defp sync_interval_or_state_to_all(state) do
     state = monitor_neighbours(state)
-    new_merkle_map = MerkleMap.update_hashes(state.merkle_map)
-    {:continue, continuation} = MerkleMap.prepare_partial_diff(new_merkle_map, 8)
+    new_merkle_tree = MerkleTree.update_hashes(state.merkle_tree)
+    {:continue, continuation} = MerkleTree.prepare_partial_diff(new_merkle_tree, 8)
 
     diff = %Diff{
       continuation: continuation,
@@ -267,8 +314,13 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Enum.reduce(state.outstanding_syncs, fn neighbour, outstanding_syncs ->
         Map.put_new_lazy(outstanding_syncs, neighbour, fn ->
           try do
-            send(neighbour, {:diff, %Diff{diff | to: neighbour}})
-            1
+            if send_nosuspend(neighbour, {:diff, %Diff{diff | to: neighbour}}) do
+              1
+            else
+              # This happens when we attempt to sync with a neighbour that is slow.
+              Logger.debug("tried to sync with a slow neighbour: #{inspect(neighbour)}, move on")
+              0
+            end
           rescue
             _ in ArgumentError ->
               # This happens when we attempt to sync with a neighbour that is dead.
@@ -285,7 +337,7 @@ defmodule DeltaCrdt.CausalCrdt do
       |> Map.new()
 
     Map.put(state, :outstanding_syncs, new_outstanding_syncs)
-    |> Map.put(:merkle_map, new_merkle_map)
+    |> Map.put(:merkle_tree, new_merkle_tree)
   end
 
   defp monitor_neighbours(state) do
@@ -318,14 +370,14 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   defp send_diff_continue(diff) do
-    send(diff.to, {:diff, diff})
+    send_nosuspend(diff.to, {:diff, diff})
   end
 
   defp send_diff(diff, keys, state) do
     if diff.originator == diff.to do
-      send(diff.to, {:get_diff, diff, keys})
+      send_nosuspend(diff.to, {:get_diff, diff, keys})
     else
-      send(
+      send_nosuspend(
         diff.to,
         {:diff,
          %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
@@ -387,10 +439,10 @@ defmodule DeltaCrdt.CausalCrdt do
 
     diffs = diff(state, new_state, keys)
 
-    {new_merkle_map, count} =
-      Enum.reduce(diffs, {state.merkle_map, 0}, fn
-        {:add, key, value}, {mm, count} -> {MerkleMap.put(mm, key, value), count + 1}
-        {:remove, key}, {mm, count} -> {MerkleMap.delete(mm, key), count + 1}
+    {new_merkle_tree, count} =
+      Enum.reduce(diffs, {state.merkle_tree, 0}, fn
+        {:add, key, value}, {tree, count} -> {MerkleTree.put(tree, key, value), count + 1}
+        {:remove, key}, {tree, count} -> {MerkleTree.delete(tree, key), count + 1}
       end)
 
     :telemetry.execute([:delta_crdt, :sync, :done], %{keys_updated_count: count}, %{
@@ -399,15 +451,22 @@ defmodule DeltaCrdt.CausalCrdt do
 
     diffs_to_callback(state, new_state, diffs_keys(diffs))
 
-    Map.put(new_state, :merkle_map, new_merkle_map)
+    Map.put(new_state, :merkle_tree, new_merkle_tree)
     |> write_to_storage()
   end
 
   defp ack_diff(%{originator: originator, from: originator, to: to}) do
-    send(originator, {:ack_diff, to})
+    send_nosuspend(originator, {:ack_diff, to})
   end
 
   defp ack_diff(%{originator: originator, from: from, to: originator}) do
-    send(originator, {:ack_diff, from})
+    send_nosuspend(originator, {:ack_diff, from})
+  end
+
+  defp send_nosuspend(dest, msg) do
+    case Process.send(dest, msg, [:nosuspend]) do
+      :ok -> true
+      :nosuspend -> false
+    end
   end
 end
