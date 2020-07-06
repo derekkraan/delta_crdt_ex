@@ -44,8 +44,10 @@ defmodule DeltaCrdt do
   Start a DeltaCrdt and link it to the calling process.
 
   There are a number of options you can specify to tweak the behaviour of DeltaCrdt:
-  - `:notify` - when the state of the CRDT has changed, `msg` will be sent to `pid`. Varying `msg` allows a single process to listen for updates from multiple CRDTs.
   - `:sync_interval` - the delta CRDT will attempt to sync its local changes with its neighbours at this interval. Default is 50.
+  - `:on_diffs` - function which will be invoked on every diff
+  - `:max_sync_size` - maximum size of synchronization
+  - `:storage_module` - module which implements `DeltaCrdt.Storage` behaviour
   """
   @spec start_link(
           crdt_module :: module(),
