@@ -44,9 +44,9 @@ defmodule DeltaCrdt do
   Start a DeltaCrdt and link it to the calling process.
 
   There are a number of options you can specify to tweak the behaviour of DeltaCrdt:
-  - `:sync_interval` - the delta CRDT will attempt to sync its local changes with its neighbours at this interval. Default is 200.
+  - `:sync_interval` - the delta CRDT will attempt to sync its local changes with its neighbours at this interval (specified in milliseconds). Default is 200.
   - `:on_diffs` - function which will be invoked on every diff
-  - `:max_sync_size` - maximum size of synchronization
+  - `:max_sync_size` - maximum size of synchronization (specified in number of items to sync)
   - `:storage_module` - module which implements `DeltaCrdt.Storage` behaviour
   """
   @spec start_link(
