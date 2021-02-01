@@ -19,6 +19,15 @@ defmodule NewAWLWWMapTest do
              |> AWLWWMap.read()
   end
 
+  test "can add multiple values and only read one" do
+    new = AWLWWMap.new()
+    add1 = AWLWWMap.add(1, 2, :foo_node, new)
+    add2 = AWLWWMap.add(2, 3, :foo_node, add1)
+    state = AWLWWMap.join(add1, add2, [1, 2])
+
+    assert %{1 => 2} = AWLWWMap.read(state, 1)
+  end
+
   test "can remove elements" do
     add1 = AWLWWMap.add(1, 2, :foo_node, AWLWWMap.new())
     remove1 = AWLWWMap.remove(1, :foo_node, add1)
