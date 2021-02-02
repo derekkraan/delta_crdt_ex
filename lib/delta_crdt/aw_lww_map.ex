@@ -215,6 +215,8 @@ defmodule DeltaCrdt.AWLWWMap do
     end)
   end
 
+  def read(_crdt, []), do: %{}
+
   def read(%{value: values}, keys) when is_list(keys) do
     read(%{value: Map.take(values, keys)})
   end
