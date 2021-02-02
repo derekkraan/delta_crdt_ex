@@ -131,9 +131,24 @@ defmodule DeltaCrdt do
 
   @doc """
   Read the state of the CRDT.
+
+  Forwards arguments to the used crdt module, so `read(crdt, ["my-key"])` would call `crdt_module.read(state, ["my-key"])`.
+
+  For example, `DeltaCrdt.AWLWWMap` accepts a single key or a list of keys to limit the returned values instead of returning everything.
   """
+  @spec read(crdt :: GenServer.server()) :: crdt_state :: term()
   @spec read(crdt :: GenServer.server(), timeout :: timeout()) :: crdt_state :: term()
-  def read(crdt, timeout \\ @default_timeout) do
+  @spec read(crdt :: GenServer.server(), keys :: list()) :: crdt_state :: term()
+  @spec read(crdt :: GenServer.server(), keys :: list(), timeout :: timeout()) ::
+          crdt_state :: term()
+  def read(crdt), do: read(crdt, @default_timeout)
+  def read(crdt, keys) when is_list(keys), do: read(crdt, keys, @default_timeout)
+
+  def read(crdt, timeout) do
     GenServer.call(crdt, :read, timeout)
+  end
+
+  def read(crdt, keys, timeout) when is_list(keys) do
+    GenServer.call(crdt, {:read, keys}, timeout)
   end
 end
