@@ -30,6 +30,7 @@ defmodule DeltaCrdt do
 
   @default_sync_interval 200
   @default_max_sync_size 200
+  @default_timeout 5_000
 
   @type diff :: {:add, key :: any(), value :: any()} | {:remove, key :: any()}
   @type crdt_option ::
@@ -114,7 +115,7 @@ defmodule DeltaCrdt do
 
   For example, `DeltaCrdt.AWLWWMap` has a function `add` that takes 4 arguments. The last 2 arguments are supplied by DeltaCrdt internally, so you have to provide only the first two arguments: `key` and `val`. That would look like this: `DeltaCrdt.mutate(crdt, :add, ["CRDT", "is magic!"])`. This pattern is repeated for all mutation functions. Another example: to call `DeltaCrdt.AWLWWMap.clear`, use `DeltaCrdt.mutate(crdt, :clear, [])`.
   """
-  def mutate(crdt, f, a, timeout \\ 5000)
+  def mutate(crdt, f, a, timeout \\ @default_timeout)
       when is_atom(f) and is_list(a) do
     GenServer.call(crdt, {:operation, {f, a}}, timeout)
   end
@@ -132,7 +133,7 @@ defmodule DeltaCrdt do
   Read the state of the CRDT.
   """
   @spec read(crdt :: GenServer.server(), timeout :: timeout()) :: crdt_state :: term()
-  def read(crdt, timeout \\ 5000) do
+  def read(crdt, timeout \\ @default_timeout) do
     GenServer.call(crdt, :read, timeout)
   end
 end
