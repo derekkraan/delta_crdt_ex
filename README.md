@@ -30,10 +30,15 @@ DeltaCrdt.read(crdt1)
 
 # add a key/value in crdt1
 DeltaCrdt.mutate(crdt1, :add, ["CRDT", "is magic!"])
+DeltaCrdt.mutate(crdt1, :add, ["magic", "is awesome!"])
 
 # read it after it has been replicated to crdt2
 DeltaCrdt.read(crdt2)
-%{"CRDT" => "is magic!"}
+%{"CRDT" => "is magic!", "magic" => "is awesome!"}
+
+# read only a subset of keys
+DeltaCrdt.read(crdt2, ["magic"])
+%{"magic" => "is awesome!"}
 ```
 
 ⚠️ **Use atoms carefully** : Any atom contained in a key or value will be replicated across all nodes, and will never be garbage collected by the BEAM.
