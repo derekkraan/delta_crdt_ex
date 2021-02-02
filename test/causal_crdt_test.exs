@@ -169,4 +169,23 @@ defmodule CausalCrdtTest do
     refute Map.has_key?(DeltaCrdt.read(c1), "key")
     refute Map.has_key?(DeltaCrdt.read(c2), "key")
   end
+
+  test "can read a single key" do
+    {:ok, c} = DeltaCrdt.start_link(AWLWWMap)
+
+    DeltaCrdt.mutate(c, :add, ["key1", "value1"])
+    DeltaCrdt.mutate(c, :add, ["key2", "value2"])
+
+    assert %{"key1" => "value1"} == DeltaCrdt.read(c, ["key1"])
+  end
+
+  test "can read multiple keys" do
+    {:ok, c} = DeltaCrdt.start_link(AWLWWMap)
+
+    DeltaCrdt.mutate(c, :add, ["key1", "value1"])
+    DeltaCrdt.mutate(c, :add, ["key2", "value2"])
+    DeltaCrdt.mutate(c, :add, ["key3", "value3"])
+
+    assert %{"key1" => "value1", "key3" => "value3"} == DeltaCrdt.read(c, [~w[key1 key3]])
+  end
 end
