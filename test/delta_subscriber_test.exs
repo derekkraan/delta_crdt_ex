@@ -17,13 +17,13 @@ defmodule DeltaSubscriberTest do
         on_diffs: {DeltaSubscriberTest, :on_diffs, [test_pid]}
       )
 
-    :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
+    ^c1 = DeltaCrdt.put(c1, "Derek", "Kraan")
     assert_received({:diff, [{:add, "Derek", "Kraan"}]})
 
-    :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
+    ^c1 = DeltaCrdt.put(c1, "Derek", "Kraan")
     refute_received({:diff, [{:add, "Derek", "Kraan"}]})
 
-    :ok = DeltaCrdt.mutate(c1, :add, ["Derek", nil])
+    ^c1 = DeltaCrdt.put(c1, "Derek", nil)
     assert_received({:diff, [{:remove, "Derek"}]})
   end
 
@@ -36,13 +36,13 @@ defmodule DeltaSubscriberTest do
         on_diffs: fn diffs -> send(test_pid, {:diff, diffs}) end
       )
 
-    :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
+    ^c1 = DeltaCrdt.put(c1, "Derek", "Kraan")
     assert_received({:diff, [{:add, "Derek", "Kraan"}]})
 
-    :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
+    ^c1 = DeltaCrdt.put(c1, "Derek", "Kraan")
     refute_received({:diff, [{:add, "Derek", "Kraan"}]})
 
-    :ok = DeltaCrdt.mutate(c1, :add, ["Derek", nil])
+    ^c1 = DeltaCrdt.put(c1, "Derek", nil)
     assert_received({:diff, [{:remove, "Derek"}]})
   end
 
@@ -60,9 +60,9 @@ defmodule DeltaSubscriberTest do
         on_diffs: {DeltaSubscriberTest, :on_diffs, [test_pid]}
       )
 
-    :ok = DeltaCrdt.mutate(c1, :add, ["Derek", "Kraan"])
-    :ok = DeltaCrdt.mutate(c1, :add, ["Andrew", "Kraan"])
-    :ok = DeltaCrdt.mutate(c1, :add, ["Nathan", "Kraan"])
+    ^c1 = DeltaCrdt.put(c1, "Derek", "Kraan")
+    ^c1 = DeltaCrdt.put(c1, "Andrew", "Kraan")
+    ^c1 = DeltaCrdt.put(c1, "Nathan", "Kraan")
 
     DeltaCrdt.set_neighbours(c1, [c2])
     DeltaCrdt.set_neighbours(c2, [c1])
@@ -100,10 +100,10 @@ defmodule DeltaSubscriberTest do
 
       Enum.each(ops, fn
         {:add, k, v} ->
-          DeltaCrdt.mutate(c1, :add, [k, v])
+          DeltaCrdt.put(c1, k, v)
 
         {:remove, k} ->
-          DeltaCrdt.mutate(c1, :remove, [k])
+          DeltaCrdt.delete(c1, k)
       end)
 
       out =
