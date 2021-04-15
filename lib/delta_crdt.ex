@@ -19,11 +19,11 @@ defmodule DeltaCrdt do
   iex> {:ok, crdt2} = DeltaCrdt.start_link(DeltaCrdt.AWLWWMap, sync_interval: 3)
   iex> DeltaCrdt.set_neighbours(crdt1, [crdt2])
   iex> DeltaCrdt.set_neighbours(crdt2, [crdt1])
-  iex> DeltaCrdt.read(crdt1)
+  iex> DeltaCrdt.to_map(crdt1)
   %{}
-  iex> DeltaCrdt.mutate(crdt1, :add, ["CRDT", "is magic!"])
+  iex> DeltaCrdt.put(crdt1, "CRDT", "is magic!")
   iex> Process.sleep(10) # need to wait for propagation for the doctest
-  iex> DeltaCrdt.read(crdt2)
+  iex> DeltaCrdt.to_map(crdt2)
   %{"CRDT" => "is magic!"}
   ```
   """
@@ -32,6 +32,9 @@ defmodule DeltaCrdt do
   @default_max_sync_size 200
   @default_timeout 5_000
 
+  @type t :: pid()
+  @type key :: any()
+  @type value :: any()
   @type diff :: {:add, key :: any(), value :: any()} | {:remove, key :: any()}
   @type crdt_option ::
           {:on_diffs, ([diff()] -> any()) | {module(), function(), [any()]}}
@@ -100,6 +103,36 @@ defmodule DeltaCrdt do
     :ok
   end
 
+  @spec put(t(), key(), value(), timeout()) :: t()
+  def put(crdt, key, value, timeout \\ @default_timeout) do
+    :ok = GenServer.call(crdt, {:operation, {:add, [key, value]}}, timeout)
+    crdt
+  end
+
+  @spec delete(t(), key(), timeout()) :: t()
+  def delete(crdt, key, timeout \\ @default_timeout) do
+    :ok = GenServer.call(crdt, {:operation, {:remove, [key]}}, timeout)
+    crdt
+  end
+
+  @spec get(t(), key(), timeout()) :: value()
+  def get(crdt, key, timeout \\ @default_timeout) do
+    case GenServer.call(crdt, {:get, [key]}, timeout) do
+      [] -> nil
+      [elem] -> elem
+    end
+  end
+
+  @spec take(t(), [key()], timeout()) :: [{key(), value()}]
+  def take(crdt, keys, timeout \\ @default_timeout) when is_list(keys) do
+    GenServer.call(crdt, {:get, keys}, timeout)
+  end
+
+  @spec to_map(t(), timeout()) :: map()
+  def to_map(crdt, timeout \\ @default_timeout) do
+    GenServer.call(crdt, :read, timeout)
+  end
+
   @spec mutate(
           crdt :: GenServer.server(),
           function :: atom,
@@ -115,6 +148,7 @@ defmodule DeltaCrdt do
 
   For example, `DeltaCrdt.AWLWWMap` has a function `add` that takes 4 arguments. The last 2 arguments are supplied by DeltaCrdt internally, so you have to provide only the first two arguments: `key` and `val`. That would look like this: `DeltaCrdt.mutate(crdt, :add, ["CRDT", "is magic!"])`. This pattern is repeated for all mutation functions. Another example: to call `DeltaCrdt.AWLWWMap.clear`, use `DeltaCrdt.mutate(crdt, :clear, [])`.
   """
+  @deprecated "Use add/2 instead"
   def mutate(crdt, f, a, timeout \\ @default_timeout)
       when is_atom(f) and is_list(a) do
     GenServer.call(crdt, {:operation, {f, a}}, timeout)
@@ -124,6 +158,7 @@ defmodule DeltaCrdt do
   @doc """
   Mutate the CRDT asynchronously.
   """
+  @deprecated "Will be removed without replacement in a future version"
   def mutate_async(crdt, f, a)
       when is_atom(f) and is_list(a) do
     GenServer.cast(crdt, {:operation, {f, a}})
@@ -141,6 +176,7 @@ defmodule DeltaCrdt do
   @spec read(crdt :: GenServer.server(), keys :: list()) :: crdt_state :: term()
   @spec read(crdt :: GenServer.server(), keys :: list(), timeout :: timeout()) ::
           crdt_state :: term()
+  @deprecated "Use get/2 or take/3 or to_map/2"
   def read(crdt), do: read(crdt, @default_timeout)
   def read(crdt, keys) when is_list(keys), do: read(crdt, keys, @default_timeout)
 
