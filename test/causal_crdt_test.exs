@@ -25,6 +25,12 @@ defmodule CausalCrdtTest do
       assert %{"Derek" => "Kraan", Tonci: "Galic"} == DeltaCrdt.to_map(context.c1)
     end
 
+    test "merge", context do
+      DeltaCrdt.merge(context.c1, %{"Derek" => "Kraan", "Moose" => "Code"})
+      Process.sleep(100)
+      assert %{"Derek" => "Kraan", "Moose" => "Code"} == DeltaCrdt.to_map(context.c2)
+    end
+
     test "conflicting updates resolve", context do
       DeltaCrdt.put(context.c1, "Derek", "one_wins")
       DeltaCrdt.put(context.c1, "Derek", "two_wins")
