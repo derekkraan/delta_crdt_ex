@@ -121,6 +121,18 @@ defmodule DeltaCrdt do
     crdt
   end
 
+  @spec drop(t(), [key()], timeout()) :: t()
+  def drop(crdt, keys, timeout \\ @default_timeout) do
+    :ok =
+      GenServer.call(
+        crdt,
+        {:bulk_operation, Enum.map(keys, fn key -> {:remove, [key]} end)},
+        timeout
+      )
+
+    crdt
+  end
+
   @spec delete(t(), key(), timeout()) :: t()
   def delete(crdt, key, timeout \\ @default_timeout) do
     :ok = GenServer.call(crdt, {:operation, {:remove, [key]}}, timeout)

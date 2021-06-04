@@ -25,10 +25,23 @@ defmodule CausalCrdtTest do
       assert %{"Derek" => "Kraan", Tonci: "Galic"} == DeltaCrdt.to_map(context.c1)
     end
 
-    test "merge", context do
+    test "merge/3", context do
       DeltaCrdt.merge(context.c1, %{"Derek" => "Kraan", "Moose" => "Code"})
       Process.sleep(100)
       assert %{"Derek" => "Kraan", "Moose" => "Code"} == DeltaCrdt.to_map(context.c2)
+    end
+
+    test "drop/3", context do
+      DeltaCrdt.merge(context.c1, %{
+        "Netherlands" => "Amsterdam",
+        "Belgium" => "Brussel",
+        "Germany" => "Berlin"
+      })
+
+      Process.sleep(100)
+      DeltaCrdt.drop(context.c2, ["Belgium", "Germany"])
+      Process.sleep(100)
+      assert %{"Netherlands" => "Amsterdam"} == DeltaCrdt.to_map(context.c1)
     end
 
     test "conflicting updates resolve", context do
