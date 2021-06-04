@@ -32,7 +32,7 @@ defmodule DeltaCrdt do
   @default_max_sync_size 200
   @default_timeout 5_000
 
-  @type t :: pid()
+  @type t :: GenServer.server()
   @type key :: any()
   @type value :: any()
   @type diff :: {:add, key :: any(), value :: any()} | {:remove, key :: any()}
@@ -97,7 +97,7 @@ defmodule DeltaCrdt do
   DeltaCrdt.set_neighbours(c3, [c1, c2])
   ```
   """
-  @spec set_neighbours(crdt :: GenServer.server(), neighbours :: list(GenServer.server())) :: :ok
+  @spec set_neighbours(crdt :: t(), neighbours :: list(t())) :: :ok
   def set_neighbours(crdt, neighbours) when is_list(neighbours) do
     send(crdt, {:set_neighbours, neighbours})
     :ok
@@ -158,7 +158,7 @@ defmodule DeltaCrdt do
   end
 
   @spec mutate(
-          crdt :: GenServer.server(),
+          crdt :: t(),
           function :: atom,
           arguments :: list(),
           timeout :: timeout()
@@ -178,7 +178,7 @@ defmodule DeltaCrdt do
     GenServer.call(crdt, {:operation, {f, a}}, timeout)
   end
 
-  @spec mutate_async(crdt :: GenServer.server(), function :: atom, arguments :: list()) :: :ok
+  @spec mutate_async(crdt :: t(), function :: atom, arguments :: list()) :: :ok
   @doc """
   Mutate the CRDT asynchronously.
   """
@@ -195,10 +195,10 @@ defmodule DeltaCrdt do
 
   For example, `DeltaCrdt.AWLWWMap` accepts a list of keys to limit the returned values instead of returning everything.
   """
-  @spec read(crdt :: GenServer.server()) :: crdt_state :: term()
-  @spec read(crdt :: GenServer.server(), timeout :: timeout()) :: crdt_state :: term()
-  @spec read(crdt :: GenServer.server(), keys :: list()) :: crdt_state :: term()
-  @spec read(crdt :: GenServer.server(), keys :: list(), timeout :: timeout()) ::
+  @spec read(crdt :: t()) :: crdt_state :: term()
+  @spec read(crdt :: t(), timeout :: timeout()) :: crdt_state :: term()
+  @spec read(crdt :: t(), keys :: list()) :: crdt_state :: term()
+  @spec read(crdt :: t(), keys :: list(), timeout :: timeout()) ::
           crdt_state :: term()
   @deprecated "Use get/2 or take/3 or to_map/2"
   def read(crdt), do: read(crdt, @default_timeout)
