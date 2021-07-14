@@ -129,15 +129,15 @@ defmodule DeltaCrdt do
 
   @spec get(t(), key(), timeout()) :: value()
   def get(crdt, key, timeout \\ @default_timeout) do
-    case GenServer.call(crdt, {:get, [key]}, timeout) do
-      [] -> nil
-      [elem] -> elem
+    case GenServer.call(crdt, {:read, [key]}, timeout) do
+      %{^key => elem} -> elem
+      _ -> nil
     end
   end
 
   @spec take(t(), [key()], timeout()) :: [{key(), value()}]
   def take(crdt, keys, timeout \\ @default_timeout) when is_list(keys) do
-    GenServer.call(crdt, {:get, keys}, timeout)
+    GenServer.call(crdt, {:read, keys}, timeout)
   end
 
   @spec to_map(t(), timeout()) :: map()
