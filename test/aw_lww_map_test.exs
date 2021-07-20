@@ -59,14 +59,16 @@ defmodule NewAWLWWMapTest do
 
   property "arbitrary add and remove sequence results in correct map" do
     operation_gen =
-      ExUnitProperties.gen all op <- StreamData.member_of([:add, :remove]),
-                               node_id <- term(),
-                               key <- term(),
-                               value <- term() do
+      ExUnitProperties.gen all(
+                             op <- StreamData.member_of([:add, :remove]),
+                             node_id <- term(),
+                             key <- term(),
+                             value <- term()
+                           ) do
         {op, key, value, node_id}
       end
 
-    check all operations <- list_of(operation_gen) do
+    check all(operations <- list_of(operation_gen)) do
       actual_result =
         operations
         |> Enum.reduce(AWLWWMap.new(), fn
