@@ -196,6 +196,7 @@ defmodule CausalCrdtTest do
     DeltaCrdt.put(c, "key2", "value2")
 
     assert %{"key1" => "value1"} == DeltaCrdt.read(c, ~w[key1])
+    assert "value1" == DeltaCrdt.get(c, "key1")
   end
 
   test "can read multiple keys" do
@@ -206,5 +207,6 @@ defmodule CausalCrdtTest do
     DeltaCrdt.put(c, "key3", "value3")
 
     assert %{"key1" => "value1", "key3" => "value3"} == DeltaCrdt.read(c, ~w[key1 key3])
+    assert %{"key1" => "value1", "key3" => "value3"} == DeltaCrdt.take(c, ~w[key1 key3])
   end
 end

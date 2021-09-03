@@ -189,8 +189,8 @@ defmodule DeltaCrdt.CausalCrdt do
     {:reply, state.crdt_module.read(state.crdt_state), state}
   end
 
-  def handle_call({:read, args}, _from, state) do
-    {:reply, state.crdt_module.read(state.crdt_state, args), state}
+  def handle_call({:read, keys}, _from, state) do
+    {:reply, state.crdt_module.read(state.crdt_state, keys), state}
   end
 
   def handle_call({:bulk_operation, operations}, _from, state) do
