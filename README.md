@@ -29,16 +29,22 @@ DeltaCrdt.read(crdt1)
 %{}
 
 # add a key/value in crdt1
-DeltaCrdt.mutate(crdt1, :add, ["CRDT", "is magic!"])
-DeltaCrdt.mutate(crdt1, :add, ["magic", "is awesome!"])
+DeltaCrdt.put(crdt1, "CRDT", "is magic!")
+DeltaCrdt.put(crdt1, "magic", "is awesome!")
 
 # read it after it has been replicated to crdt2
 DeltaCrdt.read(crdt2)
 %{"CRDT" => "is magic!", "magic" => "is awesome!"}
 
-# read only a subset of keys
-DeltaCrdt.read(crdt2, ["magic"])
+# get only a subset of keys
+DeltaCrdt.take(crdt2, ["magic"])
 %{"magic" => "is awesome!"}
+
+# get one value
+DeltaCrdt.get(crdt2, "magic")
+"is awesome!"
+
+# Other map-like functions are available, see the documentation for details.
 ```
 
 ⚠️ **Use atoms carefully** : Any atom contained in a key or value will be replicated across all nodes, and will never be garbage collected by the BEAM.
@@ -54,7 +60,7 @@ The package can be installed by adding `delta_crdt` to your list of dependencies
 ```elixir
 def deps do
   [
-    {:delta_crdt, "~> 0.5.0"}
+    {:delta_crdt, "~> 0.6.3"}
   ]
 end
 ```
