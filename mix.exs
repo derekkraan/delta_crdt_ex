@@ -24,7 +24,7 @@ defmodule DeltaCrdt.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:telemetry, "~> 0.4.0"},
+      {:telemetry, "~> 1.0 or ~> 0.4.0"},
       {:benchee, ">= 0.0.0", only: :dev, runtime: false},
       {:benchee_html, ">= 0.0.0", only: :dev, runtime: false},
       {:exprof, "~> 0.2.0", only: :dev, runtime: false},
