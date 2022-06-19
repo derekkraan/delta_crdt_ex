@@ -28,6 +28,10 @@ defmodule DeltaCrdt do
   ```
   """
 
+  require Logger
+
+  @warn_sync_interval Mix.env() != :test
+
   @default_sync_interval 200
   @default_max_sync_size 200
   @default_timeout 5_000
@@ -63,7 +67,19 @@ defmodule DeltaCrdt do
       |> Keyword.put_new(:sync_interval, @default_sync_interval)
       |> Keyword.put_new(:max_sync_size, @default_max_sync_size)
 
+    warn_low_sync_interval(init_arg)
+
     GenServer.start_link(DeltaCrdt.CausalCrdt, init_arg, Keyword.take(opts, [:name]))
+  end
+
+  defp warn_low_sync_interval(init_arg) do
+    sync_interval = Keyword.get(init_arg, :sync_interval)
+
+    if @warn_sync_interval && sync_interval < 100 do
+      Logger.warn(
+        "sync_interval (#{sync_interval}) less than 100. This parameter governs the amount of time in milliseconds between syncs. A value of 50 will therefore cause DeltaCrdt to attempt syncing its data with neighbour nodes 20 times a second!"
+      )
+    end
   end
 
   @doc """
