@@ -1,6 +1,6 @@
 # DeltaCrdt
 
-[![Hex pm](http://img.shields.io/hexpm/v/delta_crdt.svg?style=flat)](https://hex.pm/packages/delta_crdt) [![CircleCI badge](https://circleci.com/gh/derekkraan/delta_crdt_ex.png?circle-token=:circle-token)](https://circleci.com/gh/derekkraan/delta_crdt_ex)
+[![Hex pm](http://img.shields.io/hexpm/v/delta_crdt.svg?style=flat)](https://hex.pm/packages/delta_crdt) [![CircleCI badge](https://circleci.com/gh/derekkraan/delta_crdt_ex.svg?style=svg)](https://circleci.com/gh/derekkraan/delta_crdt_ex)
 
 DeltaCrdt implements a key/value store using concepts from Delta CRDTs, and relies on [`MerkleMap`](https://github.com/derekkraan/merkle_map) for efficient synchronization.
 
