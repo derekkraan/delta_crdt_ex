@@ -28,7 +28,7 @@ defmodule DeltaCrdt.AWLWWMap do
     end
 
     def next_dot(i, c = %MapSet{}) do
-      Logger.warn("inefficient next_dot computation")
+      Logger.warning("inefficient next_dot computation")
       next_dot(i, compress(c))
     end
 

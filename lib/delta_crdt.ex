@@ -78,7 +78,7 @@ defmodule DeltaCrdt do
     sync_interval = Keyword.get(init_arg, :sync_interval)
 
     if @warn_sync_interval && sync_interval < 100 do
-      Logger.warn(
+      Logger.warning(
         "sync_interval (#{sync_interval}) less than 100. This parameter governs the amount of time in milliseconds between syncs. A value of 50 will therefore cause DeltaCrdt to attempt syncing its data with neighbour nodes 20 times a second!"
       )
     end
