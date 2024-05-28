@@ -5,10 +5,12 @@ defmodule AWLWWMapPropertyTest do
 
   setup do
     operation_gen =
-      ExUnitProperties.gen all op <- StreamData.member_of([:add, :remove]),
-                               node_id <- term(),
-                               key <- term(),
-                               value <- term() do
+      ExUnitProperties.gen all(
+                             op <- StreamData.member_of([:add, :remove]),
+                             node_id <- term(),
+                             key <- term(),
+                             value <- term()
+                           ) do
         {op, key, value, node_id}
       end
 
@@ -17,9 +19,11 @@ defmodule AWLWWMapPropertyTest do
 
   describe ".add/4" do
     property "can add an element" do
-      check all key <- term(),
-                val <- term(),
-                node_id <- term() do
+      check all(
+              key <- term(),
+              val <- term(),
+              node_id <- term()
+            ) do
         assert %{key => val} ==
                  AWLWWMap.join(
                    AWLWWMap.compress_dots(AWLWWMap.new()),
@@ -32,7 +36,7 @@ defmodule AWLWWMapPropertyTest do
   end
 
   property "arbitrary add and remove sequence results in correct map", context do
-    check all operations <- list_of(context.operation_gen) do
+    check all(operations <- list_of(context.operation_gen)) do
       actual_result =
         operations
         |> Enum.reduce(AWLWWMap.compress_dots(AWLWWMap.new()), fn
@@ -60,9 +64,11 @@ defmodule AWLWWMapPropertyTest do
 
   describe ".remove/3" do
     property "can remove an element" do
-      check all key <- term(),
-                val <- term(),
-                node_id <- term() do
+      check all(
+              key <- term(),
+              val <- term(),
+              node_id <- term()
+            ) do
         crdt = AWLWWMap.compress_dots(AWLWWMap.new())
         crdt = AWLWWMap.join(crdt, AWLWWMap.add(key, val, node_id, crdt), [key])
 

@@ -10,7 +10,8 @@ defmodule DeltaCrdt.Storage do
   @type t :: module()
 
   @opaque storage_format ::
-            {node_id :: term(), sequence_number :: integer(), crdt_state :: term()}
+            {node_id :: term(), sequence_number :: integer(), crdt_state :: term(),
+             merkle_map :: term()}
 
   @callback write(name :: term(), storage_format()) :: :ok
   @callback read(name :: term()) :: storage_format() | nil
