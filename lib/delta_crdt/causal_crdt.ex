@@ -26,7 +26,9 @@ defmodule DeltaCrdt.CausalCrdt do
             sync_interval: nil,
             max_sync_size: nil
 
-  defmodule(Diff, do: defstruct(continuation: nil, dots: nil, originator: nil, from: nil, to: nil))
+  defmodule(Diff,
+    do: defstruct(continuation: nil, dots: nil, originator: nil, from: nil, to: nil)
+  )
 
   defmacrop strip_continue(tuple) do
     if System.otp_release() |> String.to_integer() > 20 do
@@ -83,19 +85,19 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, %{state | outstanding_syncs: Map.delete(state.outstanding_syncs, to)}}
   end
 
-  def handle_info({:diff, diff, keys}, state) do
-    new_state = update_state_with_delta(state, diff, keys)
+  def handle_info({:diff, delta, keys}, state) do
+    new_state = update_state_with_delta(state, delta, keys)
     {:noreply, new_state}
   end
 
-  def handle_info({:diff, diff}, state) do
+  def handle_info({:diff, %Diff{} = diff}, state) do
     diff = reverse_diff(diff)
 
     new_merkle_map = MerkleMap.update_hashes(state.merkle_map)
 
     case MerkleMap.continue_partial_diff(diff.continuation, new_merkle_map, 8) do
       {:continue, continuation} ->
-        %Diff{diff | continuation: truncate(continuation, state.max_sync_size)}
+        %{diff | continuation: truncate(continuation, state.max_sync_size)}
         |> send_diff_continue()
 
       {:ok, []} ->
@@ -109,7 +111,7 @@ defmodule DeltaCrdt.CausalCrdt do
     {:noreply, Map.put(state, :merkle_map, new_merkle_map)}
   end
 
-  def handle_info({:get_diff, diff, keys}, state) do
+  def handle_info({:get_diff, %Diff{} = diff, keys}, state) do
     diff = reverse_diff(diff)
 
     send(
@@ -324,15 +326,15 @@ defmodule DeltaCrdt.CausalCrdt do
     Map.put(state, :neighbour_monitors, new_neighbour_monitors)
   end
 
-  defp reverse_diff(diff) do
-    %Diff{diff | from: diff.to, to: diff.from}
+  defp reverse_diff(%Diff{} = diff) do
+    %{diff | from: diff.to, to: diff.from}
   end
 
-  defp send_diff_continue(diff) do
+  defp send_diff_continue(%Diff{} = diff) do
     send(diff.to, {:diff, diff})
   end
 
-  defp send_diff(diff, keys, state) do
+  defp send_diff(%Diff{} = diff, keys, state) do
     if diff.originator == diff.to do
       send(diff.to, {:get_diff, diff, keys})
     else
