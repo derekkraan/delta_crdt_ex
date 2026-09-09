@@ -118,7 +118,6 @@ defmodule DeltaCrdt.CausalCrdt do
        %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)}, keys}
     )
 
-    ack_diff(diff)
     {:noreply, state}
   end
 
@@ -292,7 +291,7 @@ defmodule DeltaCrdt.CausalCrdt do
           end
         end)
       end)
-      |> Enum.filter(&match?({_, 0}, &1))
+      |> Enum.reject(&match?({_, 0}, &1))
       |> Map.new()
 
     Map.put(state, :outstanding_syncs, new_outstanding_syncs)
