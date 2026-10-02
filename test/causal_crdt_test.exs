@@ -73,6 +73,56 @@ defmodule CausalCrdtTest do
     end
   end
 
+  describe "with a max_sync_size smaller than the difference" do
+    setup do
+      {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 20, max_sync_size: 10)
+      {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 20, max_sync_size: 10)
+      [c1: c1, c2: c2]
+    end
+
+    test "syncing to an empty neighbour does not lose data", context do
+      data = Map.new(1..100, fn i -> {i, i} end)
+      DeltaCrdt.merge(context.c1, data)
+
+      DeltaCrdt.set_neighbours(context.c1, [context.c2])
+      DeltaCrdt.set_neighbours(context.c2, [context.c1])
+      Process.sleep(1_000)
+
+      assert data == DeltaCrdt.to_map(context.c1)
+      assert data == DeltaCrdt.to_map(context.c2)
+    end
+
+    test "both neighbours keep their data", context do
+      data1 = Map.new(1..50, fn i -> {{:c1, i}, i} end)
+      data2 = Map.new(1..50, fn i -> {{:c2, i}, i} end)
+      DeltaCrdt.merge(context.c1, data1)
+      DeltaCrdt.merge(context.c2, data2)
+
+      DeltaCrdt.set_neighbours(context.c1, [context.c2])
+      DeltaCrdt.set_neighbours(context.c2, [context.c1])
+      Process.sleep(1_000)
+
+      assert Map.merge(data1, data2) == DeltaCrdt.to_map(context.c1)
+      assert Map.merge(data1, data2) == DeltaCrdt.to_map(context.c2)
+    end
+
+    test "removals still propagate", context do
+      DeltaCrdt.set_neighbours(context.c1, [context.c2])
+      DeltaCrdt.set_neighbours(context.c2, [context.c1])
+
+      DeltaCrdt.merge(context.c1, Map.new(1..100, fn i -> {i, i} end))
+      Process.sleep(1_000)
+      assert 100 == map_size(DeltaCrdt.to_map(context.c2))
+
+      DeltaCrdt.drop(context.c1, Enum.to_list(1..50))
+      Process.sleep(1_000)
+
+      expected = Map.new(51..100, fn i -> {i, i} end)
+      assert expected == DeltaCrdt.to_map(context.c1)
+      assert expected == DeltaCrdt.to_map(context.c2)
+    end
+  end
+
   test "synchronization is directional, diffs are sent TO neighbours" do
     {:ok, c1} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)
     {:ok, c2} = DeltaCrdt.start_link(AWLWWMap, sync_interval: 50)

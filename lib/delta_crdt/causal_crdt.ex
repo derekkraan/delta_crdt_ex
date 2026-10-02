@@ -26,7 +26,18 @@ defmodule DeltaCrdt.CausalCrdt do
             sync_interval: nil,
             max_sync_size: nil
 
-  defmodule(Diff, do: defstruct(continuation: nil, dots: nil, originator: nil, from: nil, to: nil))
+  defmodule(Diff,
+    do:
+      defstruct(
+        continuation: nil,
+        dots: nil,
+        cloud: nil,
+        originator: nil,
+        from: nil,
+        to: nil,
+        truncated: false
+      )
+  )
 
   defmacrop strip_continue(tuple) do
     if System.otp_release() |> String.to_integer() > 20 do
@@ -95,14 +106,22 @@ defmodule DeltaCrdt.CausalCrdt do
 
     case MerkleMap.continue_partial_diff(diff.continuation, new_merkle_map, 8) do
       {:continue, continuation} ->
-        %Diff{diff | continuation: truncate(continuation, state.max_sync_size)}
+        truncated_continuation = truncate(continuation, state.max_sync_size)
+
+        %{
+          diff
+          | continuation: truncated_continuation,
+            truncated: diff.truncated or truncated_continuation != continuation
+        }
         |> send_diff_continue()
 
       {:ok, []} ->
         ack_diff(diff)
 
       {:ok, keys} ->
-        send_diff(diff, truncate(keys, state.max_sync_size), state)
+        truncated_keys = truncate(keys, state.max_sync_size)
+        diff = %{diff | truncated: diff.truncated or truncated_keys != keys}
+        send_diff(diff, truncated_keys, state)
         ack_diff(diff)
     end
 
@@ -112,11 +131,7 @@ defmodule DeltaCrdt.CausalCrdt do
   def handle_info({:get_diff, diff, keys}, state) do
     diff = reverse_diff(diff)
 
-    send(
-      diff.to,
-      {:diff,
-       %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)}, keys}
-    )
+    send(diff.to, {:diff, delta_for_keys(diff, keys, state), keys})
 
     ack_diff(diff)
     {:noreply, state}
@@ -268,6 +283,7 @@ defmodule DeltaCrdt.CausalCrdt do
     diff = %Diff{
       continuation: continuation,
       dots: state.crdt_state.dots,
+      cloud: Map.get(state.crdt_state, :cloud, MapSet.new()),
       from: self(),
       originator: self()
     }
@@ -324,8 +340,8 @@ defmodule DeltaCrdt.CausalCrdt do
     Map.put(state, :neighbour_monitors, new_neighbour_monitors)
   end
 
-  defp reverse_diff(diff) do
-    %Diff{diff | from: diff.to, to: diff.from}
+  defp reverse_diff(%Diff{} = diff) do
+    %{diff | from: diff.to, to: diff.from}
   end
 
   defp send_diff_continue(diff) do
@@ -336,13 +352,20 @@ defmodule DeltaCrdt.CausalCrdt do
     if diff.originator == diff.to do
       send(diff.to, {:get_diff, diff, keys})
     else
-      send(
-        diff.to,
-        {:diff,
-         %{state.crdt_state | dots: diff.dots, value: Map.take(state.crdt_state.value, keys)},
-         keys}
-      )
+      send(diff.to, {:diff, delta_for_keys(diff, keys, state), keys})
     end
+  end
+
+  # When the diff was truncated the receiver only gets some of the differing keys, so it
+  # mustn't adopt our causal context as a whole: mark the delta as partial.
+  defp delta_for_keys(diff, keys, state) do
+    state.crdt_state
+    |> Map.merge(%{
+      dots: diff.dots,
+      cloud: diff.cloud,
+      value: Map.take(state.crdt_state.value, keys)
+    })
+    |> Map.put(:partial, diff.truncated)
   end
 
   defp handle_operation({function, [key | rest_args]}, state) do

@@ -1,5 +1,9 @@
 defmodule DeltaCrdt.AWLWWMap do
+  # `dots` is the causal context: compressed to `%{node_id => max_counter}` in a state, or an
+  # exact `MapSet` of dots in a delta. `cloud` holds the observed dots that can't be
+  # compressed yet, because a lower dot of the same node hasn't been observed.
   defstruct dots: MapSet.new(),
+            cloud: MapSet.new(),
             value: %{}
 
   require Logger
@@ -51,17 +55,42 @@ defmodule DeltaCrdt.AWLWWMap do
       end)
     end
 
-    def difference(dots1 = %MapSet{}, dots2 = %MapSet{}) do
+    def difference(dots1 = %MapSet{}, dots2 = %MapSet{}, _cloud) do
       MapSet.difference(dots1, dots2)
     end
 
-    def difference(_dots1, _dots2 = %MapSet{}), do: raise("this should not happen")
+    def difference(_dots1, _dots2 = %MapSet{}, _cloud), do: raise("this should not happen")
 
-    def difference(dots1, dots2) do
+    def difference(dots1, dots2, cloud) do
       Enum.reject(dots1, fn dot ->
-        member?(dots2, dot)
+        member?(dots2, dot) or MapSet.member?(cloud, dot)
       end)
       |> MapSet.new()
+    end
+
+    # Adds exact dots to a compressed context. A dot only advances its node's counter when
+    # it's the next one; otherwise it goes in the cloud, so we never claim to have
+    # observed dots we haven't.
+    def compact(dots, cloud, new_dots) do
+      Enum.reduce(new_dots, {dots, cloud}, fn {i, x} = dot, {dots, cloud} ->
+        max = Map.get(dots, i, 0)
+
+        cond do
+          x <= max -> {dots, cloud}
+          x == max + 1 -> extend(Map.put(dots, i, x), MapSet.delete(cloud, dot), i)
+          true -> {dots, MapSet.put(cloud, dot)}
+        end
+      end)
+    end
+
+    defp extend(dots, cloud, i) do
+      next = {i, Map.fetch!(dots, i) + 1}
+
+      if MapSet.member?(cloud, next) do
+        extend(Map.put(dots, i, elem(next, 1)), MapSet.delete(cloud, next), i)
+      else
+        {dots, cloud}
+      end
     end
 
     def member?(dots = %MapSet{}, dot = {_, _}) do
@@ -151,11 +180,46 @@ defmodule DeltaCrdt.AWLWWMap do
 
   @doc false
   def join(delta1, delta2, keys) do
-    new_dots = Dots.union(delta1.dots, delta2.dots)
+    {new_dots, new_cloud} = join_contexts(delta1, delta2, keys)
 
     join_or_maps(delta1, delta2, [:join_or_maps, :join_dot_sets], keys)
     |> Map.put(:dots, new_dots)
+    |> Map.put(:cloud, new_cloud)
   end
+
+  # A partial delta carries the sender's whole causal context but only the entries under
+  # `keys`. That context decides which of our entries under `keys` were removed, but
+  # adopting it would claim we observed entries under other keys that we never received
+  # (and would remove them everywhere on the next sync). Only record the received dots.
+  defp join_contexts(delta1, %{partial: true} = delta2, keys) do
+    received_dots =
+      for key <- keys, {_el, dots} <- Map.get(delta2.value, key, %{}), dot <- dots, do: dot
+
+    Dots.compact(delta1.dots, cloud(delta1), received_dots)
+  end
+
+  defp join_contexts(%{dots: dots1 = %MapSet{}}, %{dots: dots2 = %MapSet{}}, _keys) do
+    {MapSet.union(dots1, dots2), MapSet.new()}
+  end
+
+  defp join_contexts(delta1 = %{dots: %MapSet{}}, delta2, keys) do
+    join_contexts(delta2, delta1, keys)
+  end
+
+  defp join_contexts(delta1, %{dots: dots2 = %MapSet{}}, _keys) do
+    Dots.compact(delta1.dots, cloud(delta1), dots2)
+  end
+
+  defp join_contexts(delta1, delta2, _keys) do
+    Dots.compact(
+      Dots.union(delta1.dots, delta2.dots),
+      MapSet.new(),
+      MapSet.union(cloud(delta1), cloud(delta2))
+    )
+  end
+
+  # states persisted by an older version have no cloud
+  defp cloud(state), do: Map.get(state, :cloud, MapSet.new())
 
   @doc false
   def join_or_maps(delta1, delta2, nested_joins, keys) do
@@ -193,15 +257,15 @@ defmodule DeltaCrdt.AWLWWMap do
   end
 
   @doc false
-  def join_dot_sets(%{value: s1, dots: c1}, %{value: s2, dots: c2}, [], _keys) do
+  def join_dot_sets(delta1 = %{value: s1, dots: c1}, delta2 = %{value: s2, dots: c2}, [], _keys) do
     s1 = MapSet.new(s1)
     s2 = MapSet.new(s2)
 
     new_s =
       [
         MapSet.intersection(s1, s2),
-        Dots.difference(s1, c2),
-        Dots.difference(s2, c1)
+        Dots.difference(s1, c2, cloud(delta2)),
+        Dots.difference(s2, c1, cloud(delta1))
       ]
       |> Enum.reduce(&MapSet.union/2)
 
