@@ -57,6 +57,60 @@ defmodule NewAWLWWMapTest do
     assert 1 = map_size(AWLWWMap.compress_dots(final) |> Map.get(:dots))
   end
 
+  describe "joining a partial delta" do
+    setup do
+      new = AWLWWMap.compress_dots(AWLWWMap.new())
+
+      sender =
+        Enum.reduce(1..3, new, fn key, state ->
+          AWLWWMap.join(state, AWLWWMap.add(key, key, :sender, state), [key])
+        end)
+
+      partial = %{sender | value: Map.take(sender.value, [3])} |> Map.put(:partial, true)
+
+      [new: new, sender: sender, receiver: AWLWWMap.join(new, partial, [3])]
+    end
+
+    test "only adopts the dots of the entries it received", context do
+      assert %{3 => 3} == AWLWWMap.read(context.receiver)
+      assert %{} == context.receiver.dots
+      assert MapSet.new([{:sender, 3}]) == context.receiver.cloud
+    end
+
+    test "syncing back doesn't remove entries the receiver never got", context do
+      delta = %{context.receiver | value: Map.take(context.receiver.value, [1, 2])}
+
+      assert %{1 => 1, 2 => 2, 3 => 3} ==
+               AWLWWMap.join(context.sender, delta, [1, 2]) |> AWLWWMap.read()
+    end
+
+    test "a local remove afterwards doesn't claim unseen dots", context do
+      receiver =
+        AWLWWMap.join(context.receiver, AWLWWMap.remove(3, :receiver, context.receiver), [3])
+
+      assert %{} == receiver.dots
+      delta = %{receiver | value: %{}}
+
+      assert %{1 => 1, 2 => 2} ==
+               AWLWWMap.join(context.sender, delta, [1, 2, 3]) |> AWLWWMap.read()
+    end
+
+    test "removes entries under the sent keys that the sender removed", context do
+      receiver = AWLWWMap.join(context.new, context.sender, [1, 2, 3])
+      sender = AWLWWMap.join(context.sender, AWLWWMap.remove(1, :sender, context.sender), [1])
+      partial = %{sender | value: Map.take(sender.value, [1])} |> Map.put(:partial, true)
+
+      assert %{2 => 2, 3 => 3} == AWLWWMap.join(receiver, partial, [1]) |> AWLWWMap.read()
+    end
+
+    test "a full sync afterwards compacts the cloud", context do
+      receiver = AWLWWMap.join(context.receiver, context.sender, [1, 2])
+
+      assert %{sender: 3} == receiver.dots
+      assert MapSet.new() == receiver.cloud
+    end
+  end
+
   property "arbitrary add and remove sequence results in correct map" do
     operation_gen =
       ExUnitProperties.gen all op <- StreamData.member_of([:add, :remove]),
