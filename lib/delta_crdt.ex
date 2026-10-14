@@ -46,6 +46,7 @@ defmodule DeltaCrdt do
           | {:max_sync_size, pos_integer() | :infinite}
           | {:name, GenServer.name()}
           | {:storage_module, DeltaCrdt.Storage.t()}
+          | {:prune_dots_after, pos_integer() | :infinity}
 
   @type crdt_options :: [crdt_option()]
 
@@ -58,6 +59,7 @@ defmodule DeltaCrdt do
   - `:max_sync_size` - maximum size of synchronization (specified in number of items to sync)
   - `:name` - name of the CRDT process
   - `:storage_module` - module which implements `DeltaCrdt.Storage` behaviour
+  - `:prune_dots_after` - drop a replica's dots from the causal context once no value has referenced them for this long (in milliseconds). Every sync sends the whole causal context to every neighbour, and each restarted replica adds a new node id to it, so without pruning it grows with every restart for as long as any replica stays up. Defaults to `Application.get_env(:delta_crdt, :prune_dots_after, :infinity)`, which keeps every dot.
   """
   @spec start_link(
           crdt_module :: module(),
@@ -68,6 +70,9 @@ defmodule DeltaCrdt do
       Keyword.put(opts, :crdt_module, crdt_module)
       |> Keyword.put_new(:sync_interval, @default_sync_interval)
       |> Keyword.put_new(:max_sync_size, @default_max_sync_size)
+      |> Keyword.put_new_lazy(:prune_dots_after, fn ->
+        Application.get_env(:delta_crdt, :prune_dots_after, :infinity)
+      end)
 
     warn_low_sync_interval(init_arg)
 

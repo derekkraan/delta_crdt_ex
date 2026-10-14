@@ -24,7 +24,9 @@ defmodule DeltaCrdt.CausalCrdt do
             neighbour_monitors: %{},
             outstanding_syncs: %{},
             sync_interval: nil,
-            max_sync_size: nil
+            max_sync_size: nil,
+            prune_dots_after: :infinity,
+            unreferenced_since: %{}
 
   defmodule(Diff, do: defstruct(continuation: nil, dots: nil, originator: nil, from: nil, to: nil))
 
@@ -68,6 +70,7 @@ defmodule DeltaCrdt.CausalCrdt do
       storage_module: Keyword.get(opts, :storage_module),
       sync_interval: Keyword.get(opts, :sync_interval),
       max_sync_size: max_sync_size,
+      prune_dots_after: Keyword.get(opts, :prune_dots_after, :infinity),
       crdt_module: crdt_module,
       crdt_state: crdt_module.new() |> crdt_module.compress_dots()
     }
@@ -178,7 +181,10 @@ defmodule DeltaCrdt.CausalCrdt do
   end
 
   def handle_info(:sync, state) do
-    state = sync_interval_or_state_to_all(state)
+    state =
+      state
+      |> prune_dots()
+      |> sync_interval_or_state_to_all()
 
     Process.send_after(self(), :sync, state.sync_interval)
 
@@ -297,6 +303,35 @@ defmodule DeltaCrdt.CausalCrdt do
 
     Map.put(state, :outstanding_syncs, new_outstanding_syncs)
     |> Map.put(:merkle_map, new_merkle_map)
+  end
+
+  # A node id stays in the causal context forever once seen, and every restarted replica gets a
+  # new one. Drop ids that no value has referenced for `prune_dots_after`. The own id is kept
+  # because `next_dot/2` reads its counter from the context. Pruning can only resurrect a removed
+  # value if some replica still holds it after the grace period, i.e. a partition longer than it.
+  defp prune_dots(%{prune_dots_after: :infinity} = state), do: state
+  defp prune_dots(%{crdt_state: %{dots: %MapSet{}}} = state), do: state
+
+  defp prune_dots(state) do
+    %{crdt_state: %{dots: dots} = crdt_state} = state
+    now = System.monotonic_time(:millisecond)
+    in_use = MapSet.put(state.crdt_module.node_ids_in_use(crdt_state), state.node_id)
+
+    unreferenced_since =
+      for {node_id, _counter} <- dots, not MapSet.member?(in_use, node_id), into: %{} do
+        {node_id, Map.get(state.unreferenced_since, node_id, now)}
+      end
+
+    expired =
+      for {node_id, since} <- unreferenced_since,
+          now - since >= state.prune_dots_after,
+          do: node_id
+
+    %{
+      state
+      | crdt_state: %{crdt_state | dots: Map.drop(dots, expired)},
+        unreferenced_since: Map.drop(unreferenced_since, expired)
+    }
   end
 
   defp monitor_neighbours(state) do

@@ -145,6 +145,15 @@ defmodule DeltaCrdt.AWLWWMap do
     }
   end
 
+  @doc false
+  def node_ids_in_use(%{value: values}) do
+    for {_key, elements} <- values,
+        {_element, dots} <- elements,
+        {node_id, _counter} <- dots,
+        into: MapSet.new(),
+        do: node_id
+  end
+
   def clear(_i, state) do
     Map.put(state, :value, %{})
   end
